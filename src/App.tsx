@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useQuotaAutoSwitch } from "./hooks/useQuotaAutoSwitch";
+import { AUTO_SWITCH_STORAGE_KEY, readAutoSwitchEnabled } from "./lib/quotaAutoSwitch";
 import { useAccounts } from "./hooks/useAccounts";
 import { useDesktopReopen } from "./hooks/useDesktopReopen";
 import { useCodexClosePreference } from "./hooks/useCodexClosePreference";
@@ -8,7 +10,7 @@ import { finishForceClose, type DesktopReopenPreference } from "./lib/desktopReo
 import type { CodexClosePreference } from "./lib/codexClosePreference";
 import { useForceCloseCodexProcesses } from "./hooks/useForceCloseCodexProcesses";
 import { AccountCard, AddAccountModal, UpdateChecker, WindowResizeBorders } from "./components";
-import type { AccountWithUsage, CodexProcessInfo, DockDisplayMode, UsageInfo } from "./types";
+import type { AccountInfo, AccountWithUsage, CodexProcessInfo, DockDisplayMode, UsageInfo } from "./types";
 import {
   exportFullBackupFile,
   importFullBackupFile,
@@ -249,6 +251,9 @@ function App() {
   const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
   const [isNavMenuOpen, setIsNavMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [autoSwitchEnabled, setAutoSwitchEnabled] = useState(readAutoSwitchEnabled);
+  const autoSwitchEnabledRef = useRef(autoSwitchEnabled);
+  autoSwitchEnabledRef.current = autoSwitchEnabled;
   const [autoResumeSessions, setAutoResumeSessions] = useState(() => readAutoResumeSessions());
   const [recoveryState, setRecoveryState] = useState<RecoveryState | null>(null);
   const [isCompletingForceClose, setIsCompletingForceClose] = useState(false);
@@ -557,6 +562,7 @@ function App() {
   }, []);
 
   const handleSwitch = async (accountId: string) => {
+    if (autoSwitcher.inFlight.current || forceCloseInFlightRef.current) return;
     try {
       setSwitchingId(accountId);
       const latestProcessInfo = await checkProcesses();
@@ -689,7 +695,7 @@ function App() {
       unlisten = await listen<SwitchAccountBlockedPayload>(
         SWITCH_ACCOUNT_BLOCKED_EVENT,
         async (event) => {
-          if (forceCloseInFlightRef.current) return;
+          if (forceCloseInFlightRef.current || autoSwitcher.inFlight.current) return;
           const latestProcessInfo = await checkProcesses();
           const accountId = event.payload?.accountId;
 
@@ -776,11 +782,15 @@ function App() {
     }
   };
 
-  const handleForceCloseConfirm = async () => {
-    if (forceCloseInFlightRef.current || desktopReopen.checking) return;
+  const handleForceCloseConfirm = async (automatic?: { accountId: string; sourceId: string }) => {
+    if (forceCloseInFlightRef.current || (!automatic && desktopReopen.checking)) {
+      if (automatic) throw new Error("Another close or switch is in progress");
+      return;
+    }
     forceCloseInFlightRef.current = true;
-    const accountId = pendingSwitchAccountId;
-    const shouldReopen = desktopReopen.available && desktopReopen.reopen;
+    const accountId = automatic?.accountId ?? pendingSwitchAccountId;
+    const shouldReopen = !!automatic || (desktopReopen.available && desktopReopen.reopen);
+    const forceClose = automatic ? codexClose.preference === "force" : codexClose.forceClose;
     let preparedRecoveryCount = 0;
     let reopened = false;
     setIsCompletingForceClose(true);
@@ -788,30 +798,44 @@ function App() {
       if (accountId && autoResumeSessions && shouldReopen) {
         preparedRecoveryCount = await invokeBackend<number>("prepare_codex_session_recovery");
       }
-      try {
-        desktopReopen.rememberSelection();
-      } catch (err) {
-        showWarmupToast(`Could not save preference: ${formatWarmupError(err)}`, true);
+      if (!automatic) {
+        try {
+          desktopReopen.rememberSelection();
+        } catch (err) {
+          showWarmupToast(`Could not save preference: ${formatWarmupError(err)}`, true);
+        }
+        try {
+          codexClose.rememberSelection();
+        } catch (err) {
+          showWarmupToast(`Could not save close preference: ${formatWarmupError(err)}`, true);
+        }
       }
-      try {
-        codexClose.rememberSelection();
-      } catch (err) {
-        showWarmupToast(`Could not save close preference: ${formatWarmupError(err)}`, true);
+      if (automatic) {
+        const current = await invokeBackend<AccountInfo | null>("get_active_account_info");
+        if (current?.id !== automatic.sourceId) throw new Error("The active account changed before closing Codex");
+        if (!autoSwitchEnabledRef.current) throw new Error("Auto-switch was turned off before closing Codex");
       }
-      const result = await closeCodexProcesses(shouldReopen, codexClose.forceClose);
+      const result = await closeCodexProcesses(shouldReopen, forceClose);
       if (!result?.processInfo?.can_switch) {
         if (preparedRecoveryCount > 0) {
           await invokeBackend("cancel_codex_session_recovery").catch(() => undefined);
+          preparedRecoveryCount = 0;
         }
+        if (automatic) throw new Error("Could not close Codex; no account switch was made");
         return;
       }
+      if (automatic && !result.reopenToken) throw new Error("Codex closed, but no desktop reopen token was captured; no account switch was made");
 
       await finishForceClose(
         { canSwitch: true, reopenToken: result.reopenToken },
         accountId ? async () => {
           setSwitchingId(accountId);
-          await switchAccount(accountId);
-          showWarmupToast(`Switched account after ${codexClose.forceClose ? "force closing" : "closing"} Codex.`);
+          if (automatic) {
+            const current = await invokeBackend<AccountInfo | null>("get_active_account_info");
+            if (current?.id !== automatic.sourceId) throw new Error("The active account changed before switching");
+          }
+          await switchAccount(accountId, automatic?.sourceId);
+          showWarmupToast(`Switched account after ${forceClose ? "force closing" : "closing"} Codex.`);
         } : null,
         async (token) => {
           try {
@@ -840,9 +864,11 @@ function App() {
         }
       } else if (preparedRecoveryCount > 0) {
         await invokeBackend("cancel_codex_session_recovery").catch(() => undefined);
+        preparedRecoveryCount = 0;
       } else if (accountId && autoResumeSessions && reopened) {
         setRecoveryState({ status: "complete", report: { resumed: [], skipped: [], failed: [], timed_out: false } });
       }
+      if (automatic && !reopened) throw new Error("Account switched, but Codex did not reopen; open Codex manually");
       if (shouldReopen && !result.reopenToken) {
         showWarmupToast("No closed desktop app could be identified for reopening. Open Codex manually.", true);
       }
@@ -852,12 +878,41 @@ function App() {
       }
       console.error("Failed to switch account after closing Codex:", err);
       showWarmupToast(`Switch failed after closing Codex: ${formatWarmupError(err)}`, true);
+      if (automatic) throw err;
     } finally {
       setPendingSwitchAccountId(null);
       setSwitchingId(null);
       setIsCompletingForceClose(false);
       forceCloseInFlightRef.current = false;
       void checkProcesses();
+    }
+  };
+
+  const autoSwitcher = useQuotaAutoSwitch({
+    enabled: autoSwitchEnabled,
+    blocked: () => forceCloseInFlightRef.current || switchingId !== null || forceCloseConfirmOpen || isSettingsOpen || loading,
+    switchAccount: async (target, sourceId, reopen) => {
+      if (reopen) {
+        await handleForceCloseConfirm({ accountId: target.id, sourceId });
+      } else {
+        setSwitchingId(target.id);
+        try {
+          const current = await invokeBackend<AccountInfo | null>("get_active_account_info");
+          if (current?.id !== sourceId) throw new Error("The active account changed before switching");
+          if (!autoSwitchEnabledRef.current) throw new Error("Auto-switch was turned off");
+          await switchAccount(target.id, sourceId);
+        } finally { setSwitchingId(null); }
+      }
+    },
+  });
+
+  const saveAutoSwitchEnabled = (enabled: boolean) => {
+    try {
+      window.localStorage.setItem(AUTO_SWITCH_STORAGE_KEY, String(enabled));
+      autoSwitchEnabledRef.current = enabled;
+      setAutoSwitchEnabled(enabled);
+    } catch (error) {
+      showWarmupToast(`Could not save auto-switch preference: ${formatWarmupError(error)}`, true);
     }
   };
 
@@ -1482,7 +1537,7 @@ function App() {
                             setPendingSwitchAccountId(null);
                             setForceCloseConfirmOpen(true);
                           }}
-                          disabled={isForceClosingCodex}
+                          disabled={isForceClosingCodex || autoSwitcher.busy}
                           className="inline-flex items-center rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30"
                           title="Close running Codex processes"
                         >
@@ -1776,6 +1831,15 @@ function App() {
 
       {/* Main Content */}
       <main className="max-w-5xl mx-auto px-6 pt-4 pb-8">
+        {autoSwitchEnabled && (
+          <section aria-label="Automatic account switching" className="mb-4 rounded-xl border border-gray-200 bg-white p-4 text-sm dark:border-gray-700 dark:bg-gray-900">
+            <div className="flex justify-between gap-4">
+              <h2 className="font-semibold">Automatic account switching</h2>
+              <button onClick={() => saveAutoSwitchEnabled(false)} className="underline">Turn off auto-switch</button>
+            </div>
+            <p role="status" className="mt-2 text-gray-600 dark:text-gray-300">{autoSwitcher.status}</p>
+          </section>
+        )}
         {recoveryState && (
           <SessionRecoveryPanel state={recoveryState} onDismiss={() => setRecoveryState(null)} />
         )}
@@ -1885,7 +1949,7 @@ function App() {
                     }
                     onRename={(newName) => renameAccount(activeAccount.id, newName)}
                     switching={switchingId === activeAccount.id}
-                    switchDisabled={switchingId !== null || isForceClosingCodex}
+                    switchDisabled={switchingId !== null || isForceClosingCodex || autoSwitcher.busy}
                     codexRunning={hasRunningProcesses ?? false}
                     warmingUp={
                       isWarmingAll ||
@@ -1982,7 +2046,7 @@ function App() {
                       }
                       onRename={(newName) => renameAccount(account.id, newName)}
                       switching={switchingId === account.id}
-                      switchDisabled={switchingId !== null || isForceClosingCodex}
+                      switchDisabled={switchingId !== null || isForceClosingCodex || autoSwitcher.busy}
                       codexRunning={hasRunningProcesses ?? false}
                       warmingUp={
                         isWarmingAll ||
@@ -2043,6 +2107,8 @@ function App() {
           onReopenPreferenceChange={saveDesktopReopenPreference}
           closePreference={codexClose.preference}
           onClosePreferenceChange={saveCodexClosePreference}
+          autoSwitchEnabled={autoSwitchEnabled}
+          onAutoSwitchEnabledChange={saveAutoSwitchEnabled}
           autoResumeSessions={autoResumeSessions}
           onAutoResumeSessionsChange={saveAutoResumeSessions}
           onClose={() => setIsSettingsOpen(false)}
@@ -2071,11 +2137,11 @@ function App() {
                 ) : (
                   <>
                     <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-                      <input type="checkbox" checked={codexClose.forceClose} onChange={(event) => codexClose.setForceClose(event.target.checked)} disabled={isForceClosingCodex} className="h-4 w-4 accent-red-600" />
+                      <input type="checkbox" checked={codexClose.forceClose} onChange={(event) => codexClose.setForceClose(event.target.checked)} disabled={isForceClosingCodex || autoSwitcher.busy} className="h-4 w-4 accent-red-600" />
                       Force close Codex
                     </label>
                     <label className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-                      <input type="checkbox" checked={codexClose.remember} onChange={(event) => codexClose.setRemember(event.target.checked)} disabled={isForceClosingCodex} className="h-4 w-4 accent-orange-600" />
+                      <input type="checkbox" checked={codexClose.remember} onChange={(event) => codexClose.setRemember(event.target.checked)} disabled={isForceClosingCodex || autoSwitcher.busy} className="h-4 w-4 accent-orange-600" />
                       Remember this selection
                     </label>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -2108,11 +2174,11 @@ function App() {
                 ) : desktopReopen.available ? (
                   <>
                     <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-                      <input type="checkbox" checked={desktopReopen.reopen} onChange={(event) => desktopReopen.setReopen(event.target.checked)} disabled={isForceClosingCodex} className="h-4 w-4 accent-orange-600" />
+                      <input type="checkbox" checked={desktopReopen.reopen} onChange={(event) => desktopReopen.setReopen(event.target.checked)} disabled={isForceClosingCodex || autoSwitcher.busy} className="h-4 w-4 accent-orange-600" />
                       Reopen Codex desktop after close
                     </label>
                     <label className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-                      <input type="checkbox" checked={desktopReopen.remember} onChange={(event) => desktopReopen.setRemember(event.target.checked)} disabled={isForceClosingCodex} className="h-4 w-4 accent-orange-600" />
+                      <input type="checkbox" checked={desktopReopen.remember} onChange={(event) => desktopReopen.setRemember(event.target.checked)} disabled={isForceClosingCodex || autoSwitcher.busy} className="h-4 w-4 accent-orange-600" />
                       Remember this selection
                     </label>
                     <p className="text-xs text-gray-500 dark:text-gray-400">You can change this later in Settings. Terminal and IDE sessions will not reopen.</p>
@@ -2154,7 +2220,7 @@ function App() {
                   setPendingSwitchAccountId(null);
                   setForceCloseConfirmOpen(false);
                 }}
-                disabled={isForceClosingCodex}
+                disabled={isForceClosingCodex || autoSwitcher.busy}
                 className="px-4 py-2.5 text-sm font-medium rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 transition-colors disabled:opacity-50"
               >
                 Cancel
