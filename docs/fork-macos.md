@@ -2,7 +2,7 @@
 
 This fork is maintained at https://github.com/lifan-builds/codex-switcher. Its main branch includes quota-stopped conversation recovery, automatic account switching, and direct re-login for invalid accounts. The recovery checkbox and progress/results panel belong to the recovery feature.
 
-Build with `pnpm install --frozen-lockfile` and `pnpm build:fork:mac`. This creates `src-tauri/target/release/bundle/macos/Codex Switcher.app`. The window and header identify it as the Lifan fork. The fork configuration disables the upstream updater, both the visible update checker and its configured endpoints, so an upstream release cannot replace these features through the app. Updates are built from this fork manually until a signed fork update channel is configured.
+Build with `pnpm install --frozen-lockfile` and `pnpm build:fork:mac`. This creates `src-tauri/target/release/bundle/macos/Codex Switcher.app` and applies/verifies an ad-hoc signature for local macOS use. It is not an Apple-notarized distribution. The window and header identify it as the Lifan fork. The fork configuration disables the upstream updater, both the visible update checker and its configured endpoints, so an upstream release cannot replace these features through the app. Updates are built from this fork manually until a signed fork update channel is configured.
 
 Feature tracking:
 
