@@ -1514,6 +1514,11 @@ function App() {
                   <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">
                     Codex Switcher
                   </h1>
+                  {import.meta.env.VITE_FORK_BUILD === "true" && (
+                    <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-200" title="lifan-builds/codex-switcher · upstream updates disabled">
+                      Lifan fork
+                    </span>
+                  )}
                   {processInfo && (
                     <div className="inline-flex items-center gap-1">
                       <span
@@ -2389,7 +2394,7 @@ function App() {
           </div>
         </div>
       )}
-      <UpdateChecker />
+      {import.meta.env.VITE_FORK_BUILD !== "true" && <UpdateChecker />}
 
     </div>
   );

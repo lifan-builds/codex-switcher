@@ -1,3 +1,5 @@
+> **Lifan fork:** includes quota recovery, automatic account switching, and direct re-login. See [macOS build, installation, and rollback](docs/fork-macos.md). Fork builds disable upstream updates to retain these features.
+
 <p align="center">
   <img src="src-tauri/icons/logo.svg" alt="Codex Switcher" width="128" height="128">
 </p>

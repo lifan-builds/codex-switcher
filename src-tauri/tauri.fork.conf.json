@@ -1,0 +1,26 @@
+{
+  "productName": "Codex Switcher",
+  "build": {
+    "beforeBuildCommand": "pnpm exec tsc && pnpm exec vite build --mode fork"
+  },
+  "bundle": {
+    "createUpdaterArtifacts": false
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Codex Switcher \u2014 Lifan fork",
+        "width": 900,
+        "height": 700,
+        "minWidth": 600,
+        "minHeight": 500,
+        "backgroundThrottling": "disabled"
+      }
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": []
+    }
+  }
+}
