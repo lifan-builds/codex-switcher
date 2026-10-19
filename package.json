@@ -14,7 +14,7 @@
     "test:updater": "node --experimental-strip-types --test tests/updateInstallation.test.ts tests/updaterToolchain.test.ts",
     "preview": "vite preview",
     "tauri": "sh ./scripts/tauri.sh",
-    "build:fork:mac": "pnpm tauri build --bundles app --config src-tauri/tauri.fork.conf.json",
+    "build:fork:mac": "pnpm tauri build --bundles app --config src-tauri/tauri.fork.conf.json && codesign --force --deep --sign - 'src-tauri/target/release/bundle/macos/Codex Switcher.app' && codesign --verify --deep 'src-tauri/target/release/bundle/macos/Codex Switcher.app'",
     "tauri:win": "tauri",
     "lan": "pnpm build && cargo run --manifest-path src-tauri/Cargo.toml --bin codex-web",
     "version:bump": "node scripts/bump-version.mjs",
