@@ -44,9 +44,11 @@ for one minute; failed switch attempts keep the five-minute protection against
 repeated restarts. Native Codex login, restart, and recovery behavior is retained.
 Tracking: [delay issue #18](https://github.com/lifan-builds/codex-switcher/issues/18).
 
-Validation: 90 Rust tests passed (3 opt-in tests skipped), 32 frontend tests passed
+Validation: 91 Rust tests passed (3 opt-in tests skipped), 32 frontend tests passed
 (1 platform-specific test skipped), and the frontend production build passed.
 Fresh/stale stops, resumed chats, quoted errors, internal agents, bounded log
-tails, scheduling, short read retries, and switch cooldowns are covered. This does
+tails, scheduling, short read retries, and switch cooldowns are covered. A stalled
+local HTTP response verifies the backend's ten-second usage-request timeout,
+including body reads. This does
 not measure a real quota-triggered desktop restart or hidden-window behavior on
 other operating systems.

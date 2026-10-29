@@ -369,6 +369,8 @@ async fn send_chatgpt_get_request(
     client
         .get(url)
         .headers(headers)
+        // UI invoke timeouts do not cancel this request, including body reads.
+        .timeout(std::time::Duration::from_secs(10))
         .send()
         .await
         .with_context(|| format!("Failed to send GET request to {url}"))
@@ -560,6 +562,34 @@ pub async fn refresh_all_usage(accounts: &[StoredAccount]) -> Vec<UsageInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn usage_get_times_out_when_the_response_body_stalls() {
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut connection, _) = listener.accept().await.unwrap();
+            connection
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{")
+                .await
+                .unwrap();
+            std::future::pending::<()>().await;
+        });
+        let result = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            send_chatgpt_get_request(&format!("http://{address}/usage"), "synthetic", None)
+                .await
+                .unwrap()
+                .text()
+                .await
+        })
+        .await;
+        server.abort();
+        assert!(result
+            .expect("backend GET must stop before the UI retries")
+            .unwrap_err()
+            .is_timeout());
+    }
 
     fn rate_limit_window(used_percent: f64, window_seconds: i32) -> RateLimitWindow {
         RateLimitWindow {
