@@ -12,7 +12,7 @@ Feature tracking:
 | Automatic switching to available quota | [#3](https://github.com/lifan-builds/codex-switcher/issues/3) | [#4](https://github.com/lifan-builds/codex-switcher/pull/4) |
 | Re-login for invalid accounts | [#5](https://github.com/lifan-builds/codex-switcher/issues/5) | [#6](https://github.com/lifan-builds/codex-switcher/pull/6) |
 
-The combined upstream contribution remains [Lampese PR #206](https://github.com/Lampese/codex-switcher/pull/206).
+The upstream contributions are separate: [recovery #206](https://github.com/Lampese/codex-switcher/pull/206), [automatic switching #209](https://github.com/Lampese/codex-switcher/pull/209), and [re-login #210](https://github.com/Lampese/codex-switcher/pull/210).
 
 The bundle keeps the original app identifier and installation path `/Applications/Codex Switcher.app`, preserving existing preferences and launch references. Accounts remain in `~/.codex-switcher`; Codex auth remains in its configured Codex home. Do not run release and dev Switcher copies simultaneously.
 
@@ -21,3 +21,17 @@ Before replacing an installed copy, quit Switcher, back up the app bundle and ac
 Rollback: quit the fork, move its app bundle aside, restore the previous app from the private backup with `ditto`, and reopen `/Applications/Codex Switcher.app`. Leave current account/auth files in place unless recovering a specific credential corruption: old refresh tokens may already have rotated. This installation does not create or change login items; existing references to the installed path continue to work.
 
 Validation: re-login was confirmed working by the user on October 19, 2026. Recovery has live macOS evidence; automatic switching has policy and simulated integration coverage, with a real quota-triggered switch and Windows runtime still outstanding.
+
+October 25 recovery fix: on macOS, the pre-switch snapshot also captures unfinished
+turns whose rollout files are held open by the Codex processes being closed.
+Completed, aborted, internal-agent, and pending user-input/approval turns are
+excluded. Recovery rechecks the saved log offset before sending a continuation;
+a later user message, new turn, completion, or abort suppresses it. Other platforms
+retain quota-error recovery. The existing 32-chat cap and two-minute budget remain.
+An explicit abort is treated conservatively as stopped, even if shutdown emitted it.
+
+Validation for this fix: 89 Rust tests passed (3 opt-in tests skipped), 29 frontend
+tests passed (1 skipped), the four-chat recovery fixture passed, and a read-only
+live macOS snapshot found the currently running chat. The signed fork build and
+installed binary were verified. No deliberate live Codex restart was performed
+for this fix, so the full restart cycle still needs confirmation on the next switch.
