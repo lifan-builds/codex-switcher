@@ -4,6 +4,7 @@ pub mod account;
 pub mod account_stats;
 pub mod oauth;
 pub mod process;
+pub mod quota_monitor;
 mod running_recovery;
 pub mod session_recovery;
 pub mod usage;

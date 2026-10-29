@@ -175,8 +175,12 @@ tray-only switches and switches made while Codex is already closed do not run it
 ## Automatic account switching
 
 Enable **Auto-switch when the active account runs out of quota** in Settings.
-It is off by default. While the desktop Switcher is running, it checks once a
-minute and confirms exhaustion at 100% of either reported usage window. Accounts
+It is off by default. While the desktop Switcher is running, it checks every
+15 seconds and confirms exhaustion at 100% of either reported usage window. A
+native monitor also checks recently changed conversation logs every five seconds;
+a fresh usage-limit stop wakes quota validation early. Log signals alone never
+authorize a switch. Only the last 64 KiB of changed top-level chats is read, and
+old, resumed, completed, or internal-agent stops do not trigger an early check. Accounts
 with credits available are still usable. Unknown quota and failed usage requests
 never trigger switching.
 
@@ -195,11 +199,15 @@ continued after the switch. If Codex is already closed, only the account changes
 Running processes that cannot be reopened automatically are left alone.
 
 The main window shows monitoring, no-capacity, success, and failure status, with a
-**Turn off auto-switch** button. A five-minute cooldown follows each switch or
-error; overlapping checks and manual main-window switches are suppressed. Turning
+**Turn off auto-switch** button. Monitoring pauses for one minute after a successful
+switch. Temporary read failures retry after 15 seconds; failures after a switch
+attempt retain a five-minute cooldown to prevent repeated restarts. Overlapping
+checks and manual main-window switches are suppressed. Turning
 off cancels checks before closing starts; an already-started close/switch/reopen
-sequence finishes. Quota requests time out after 15 seconds. Keep Switcher running;
-quitting stops monitoring. On macOS 14+, background suspension is disabled for the
+sequence finishes. UI quota checks time out after 15 seconds. Individual backend
+usage HTTP requests, including body reads, time out after
+10 seconds so stalled requests do not accumulate behind UI retries.
+Keep Switcher running; quitting stops monitoring. On macOS 14+, background suspension is disabled for the
 main window so tray mode can keep monitoring. Hidden-window timing on older macOS
 and Windows is platform-dependent and has not been runtime-verified.
 

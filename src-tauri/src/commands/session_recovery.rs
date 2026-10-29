@@ -471,7 +471,7 @@ fn is_recent(path: &Path, now: &SystemTime) -> bool {
         .is_some_and(|age| age.as_secs() <= ACTIVE_WINDOW_SECS)
 }
 
-fn session_id(path: &Path) -> Option<String> {
+pub(super) fn session_id(path: &Path) -> Option<String> {
     let file = fs::File::open(path).ok()?;
     let line = BufReader::new(file).lines().next()?.ok()?;
     let value: Value = serde_json::from_str(&line).ok()?;
@@ -510,7 +510,7 @@ fn has_usage_limit_failure(path: &Path) -> bool {
     blocked && !read_failed
 }
 
-fn has_usage_limit_failure_lines<I>(lines: I) -> bool
+pub(super) fn has_usage_limit_failure_lines<I>(lines: I) -> bool
 where
     I: IntoIterator<Item = String>,
 {

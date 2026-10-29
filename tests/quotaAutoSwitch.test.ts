@@ -1,12 +1,40 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { checkQuotaAutoSwitch, quotaState, readAutoSwitchEnabled } from "../src/lib/quotaAutoSwitch.ts";
+import { AutoSwitchSchedule, checkQuotaAutoSwitch, quotaState, readAutoSwitchEnabled } from "../src/lib/quotaAutoSwitch.ts";
 import type { AccountInfo, UsageInfo } from "../src/types/index.ts";
 
 const account = (id: string, api = false) => ({ id, auth_mode: api ? "api_key" : "chat_g_p_t" } as AccountInfo);
 const usage = (primary: number | null, secondary: number | null = 0, extra = {}) => ({
   primary_used_percent: primary, secondary_used_percent: secondary, error: null, ...extra,
 } as UsageInfo);
+
+test("fresh quota stops wake checks early, while native and window ticks do not duplicate checks", () => {
+  const schedule = new AutoSwitchSchedule();
+  assert.equal(schedule.shouldCheck(0), true);
+  assert.equal(schedule.shouldCheck(5_000), false);
+  assert.equal(schedule.shouldCheck(5_000, true), true);
+  assert.equal(schedule.shouldCheck(5_000), false);
+  assert.equal(schedule.shouldCheck(19_999), false);
+  assert.equal(schedule.shouldCheck(20_000), true);
+});
+
+test("transient read failures retry in 15 seconds; mutation failures retain five-minute protection", () => {
+  const schedule = new AutoSwitchSchedule();
+  schedule.shouldCheck(0);
+  schedule.failed(1_000, false);
+  assert.equal(schedule.shouldCheck(15_999, true), false);
+  assert.equal(schedule.shouldCheck(16_000), true);
+  schedule.failed(17_000, true);
+  assert.equal(schedule.shouldCheck(316_999, true), false);
+  assert.equal(schedule.shouldCheck(317_000), true);
+});
+
+test("a successful switch settles for one minute without immediately cycling accounts", () => {
+  const schedule = new AutoSwitchSchedule();
+  schedule.switched(1_000);
+  assert.equal(schedule.shouldCheck(60_999, true), false);
+  assert.equal(schedule.shouldCheck(61_000), true);
+});
 
 test("only confirmed exhausted quota triggers; unknown values and credits remain safe", () => {
   assert.equal(readAutoSwitchEnabled(), false);

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AccountInfo } from "../types";
 import { invokeBackend, isTauriRuntime } from "../lib/platform";
-import { AUTO_SWITCH_COOLDOWN_MS, AUTO_SWITCH_INTERVAL_MS, checkQuotaAutoSwitch } from "../lib/quotaAutoSwitch";
+import { AutoSwitchSchedule, AUTO_SWITCH_INTERVAL_MS, checkQuotaAutoSwitch } from "../lib/quotaAutoSwitch";
 
 export function useQuotaAutoSwitch(options: {
   enabled: boolean;
@@ -11,16 +11,17 @@ export function useQuotaAutoSwitch(options: {
   const latest = useRef(options);
   latest.current = options;
   const inFlight = useRef(false);
-  const nextAttempt = useRef(0);
+  const schedule = useRef(new AutoSwitchSchedule());
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("Monitoring quota while Codex Switcher is running.");
 
   useEffect(() => {
     if (!options.enabled || !isTauriRuntime()) return;
     let disposed = false;
-    const check = async () => {
-      if (disposed || !latest.current.enabled || inFlight.current || latest.current.blocked() || Date.now() < nextAttempt.current) return;
+    const check = async (quotaStopped = false) => {
+      if (disposed || !latest.current.enabled || inFlight.current || latest.current.blocked() || !schedule.current.shouldCheck(Date.now(), quotaStopped)) return;
       inFlight.current = true;
+      let switchAttempted = false;
       setBusy(true);
       setStatus("Checking account quota…");
       try {
@@ -37,23 +38,47 @@ export function useQuotaAutoSwitch(options: {
           },
           cancelled: () => disposed || !latest.current.enabled || latest.current.blocked(),
           switchAccount: async (...args) => {
+            switchAttempted = true;
             setStatus("Quota exhausted. Switching accounts…");
             await latest.current.switchAccount(...args);
           },
         });
         setStatus(result.message);
-        if (result.switched) nextAttempt.current = Date.now() + AUTO_SWITCH_COOLDOWN_MS;
+        if (result.switched) schedule.current.switched(Date.now());
       } catch (error) {
-        setStatus(`Auto-switch paused: ${String(error)}. Retrying in five minutes.`);
-        nextAttempt.current = Date.now() + AUTO_SWITCH_COOLDOWN_MS;
+        setStatus(`Auto-switch paused: ${String(error)}. Retrying in ${switchAttempted ? "five minutes" : "15 seconds"}.`);
+        schedule.current.failed(Date.now(), switchAttempted);
       } finally {
         inFlight.current = false;
         setBusy(false);
       }
     };
     void check();
+    // Native ticks also drive checks while the window is hidden. A quota-stop
+    // signal only accelerates validation; it never authorizes switching by itself.
+    const monitorId = crypto.randomUUID();
+    const monitor = (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      const unlisten = await listen<boolean>("quota-auto-switch-tick", (event) => void check(event.payload));
+      try {
+        if (!disposed) await invokeBackend("set_quota_monitor", { monitorId, enabled: true });
+        return unlisten;
+      } catch (error) {
+        unlisten();
+        throw error;
+      }
+    })();
+    // Retain a timer if native monitoring could not start.
+    void monitor.catch((error) => console.warn("Native quota monitoring unavailable", error));
     const timer = window.setInterval(() => void check(), AUTO_SWITCH_INTERVAL_MS);
-    return () => { disposed = true; window.clearInterval(timer); };
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      void monitor.then((unlisten) => {
+        unlisten();
+        return invokeBackend("set_quota_monitor", { monitorId, enabled: false });
+      }).catch(() => undefined);
+    };
   }, [options.enabled]);
 
   return { busy, inFlight, status };

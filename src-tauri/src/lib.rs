@@ -36,6 +36,7 @@ pub fn run() {
                     .plugin(tauri_plugin_updater::Builder::new().build())?;
                 app_menu::setup(app.handle())?;
                 tray::setup(app.handle())?;
+                commands::quota_monitor::start(app.handle().clone());
             }
             Ok(())
         })
@@ -87,6 +88,7 @@ pub fn run() {
             cancel_login,
             // Usage
             get_usage,
+            commands::quota_monitor::set_quota_monitor,
             get_account_usage_stats,
             refresh_account_metadata,
             refresh_all_accounts_usage,
