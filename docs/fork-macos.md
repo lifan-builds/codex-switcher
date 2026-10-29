@@ -35,3 +35,18 @@ tests passed (1 skipped), the four-chat recovery fixture passed, and a read-only
 live macOS snapshot found the currently running chat. The signed fork build and
 installed binary were verified. No deliberate live Codex restart was performed
 for this fix, so the full restart cycle still needs confirmation on the next switch.
+
+October 28 auto-switch timing fix: routine quota checks and temporary read-error
+retries now run every 15 seconds. A native five-second monitor of changed rollout
+tails can wake a check early after a fresh quota stop; live account quota and
+identity must still be verified before closing Codex. Successful switches settle
+for one minute; failed switch attempts keep the five-minute protection against
+repeated restarts. Native Codex login, restart, and recovery behavior is retained.
+Tracking: [delay issue #18](https://github.com/lifan-builds/codex-switcher/issues/18).
+
+Validation: 90 Rust tests passed (3 opt-in tests skipped), 32 frontend tests passed
+(1 platform-specific test skipped), and the frontend production build passed.
+Fresh/stale stops, resumed chats, quoted errors, internal agents, bounded log
+tails, scheduling, short read retries, and switch cooldowns are covered. This does
+not measure a real quota-triggered desktop restart or hidden-window behavior on
+other operating systems.

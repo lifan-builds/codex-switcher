@@ -1,8 +1,26 @@
 import type { AccountInfo, CodexProcessInfo, UsageInfo } from "../types";
 
 export const AUTO_SWITCH_STORAGE_KEY = "auto-switch-exhausted-codex-account";
-export const AUTO_SWITCH_INTERVAL_MS = 60_000;
+export const AUTO_SWITCH_INTERVAL_MS = 15_000;
 export const AUTO_SWITCH_COOLDOWN_MS = 5 * 60_000;
+export const AUTO_SWITCH_SETTLE_MS = 60_000;
+
+// Read failures should not impose the longer backoff used after a failed mutation.
+export class AutoSwitchSchedule {
+  private nextCheck = 0;
+  private blockedUntil = 0;
+
+  shouldCheck(now: number, quotaStopped = false): boolean {
+    if (now < this.blockedUntil || (!quotaStopped && now < this.nextCheck)) return false;
+    this.nextCheck = now + AUTO_SWITCH_INTERVAL_MS;
+    return true;
+  }
+
+  switched(now: number): void { this.blockedUntil = now + AUTO_SWITCH_SETTLE_MS; }
+  failed(now: number, switchAttempted: boolean): void {
+    this.blockedUntil = now + (switchAttempted ? AUTO_SWITCH_COOLDOWN_MS : AUTO_SWITCH_INTERVAL_MS);
+  }
+}
 
 export function readAutoSwitchEnabled(): boolean {
   try { return window.localStorage.getItem(AUTO_SWITCH_STORAGE_KEY) === "true"; }
@@ -37,7 +55,7 @@ export async function checkQuotaAutoSwitch({ invoke, cancelled, switchAccount }:
   if (state !== "exhausted") return result(state === "available" ? "Monitoring quota. The active account still has capacity." : "Could not confirm the active account’s quota. No switch made.");
   const accounts = await invoke<AccountInfo[]>("list_accounts");
   const index = accounts.findIndex((account) => account.id === active.id);
-  if (index < 0) return result("The active account changed. Checking again next minute.");
+  if (index < 0) return result("The active account changed. Checking again shortly.");
   const candidates = [...accounts.slice(index + 1), ...accounts.slice(0, index)];
   for (const candidate of candidates) {
     if (cancelled()) return result("Auto-switch check cancelled.");
@@ -57,7 +75,7 @@ export async function checkQuotaAutoSwitch({ invoke, cancelled, switchAccount }:
     }
     if (cancelled()) return result("Auto-switch check cancelled.");
     await switchAccount(candidate, active.id, !processes.can_switch);
-    return result("Account switched automatically. Monitoring resumes in five minutes.", true);
+    return result("Account switched automatically. Monitoring resumes in one minute.", true);
   }
-  return result("No other account has confirmed available quota. Checking again next minute.");
+  return result("No other account has confirmed available quota. Checking again in 15 seconds.");
 }
