@@ -1,0 +1,59 @@
+name: Windows fork alpha
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.repository == 'lifan-builds/codex-switcher'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Frontend tests
+        run: pnpm test
+      - name: Rust tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml -- --test-threads=1
+      - name: Configure alpha
+        shell: pwsh
+        run: |
+          $config = Get-Content src-tauri/tauri.fork.conf.json -Raw | ConvertFrom-Json -AsHashtable
+          $base = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $config.version = "$($base.version)-alpha.$env:GITHUB_RUN_NUMBER"
+          if ($config.bundle.createUpdaterArtifacts -ne $false -or $config.plugins.updater.endpoints.Count -ne 0 -or $config.build.beforeBuildCommand -notmatch '--mode fork') {
+            throw 'The alpha must use fork branding and disable upstream updates.'
+          }
+          $config | ConvertTo-Json -Depth 10 | Set-Content src-tauri/tauri.alpha.conf.json -Encoding utf8
+      - name: Build installer
+        run: pnpm exec tauri build --target x86_64-pc-windows-msvc --bundles nsis --config src-tauri/tauri.alpha.conf.json -- --locked
+      - name: Collect installer and checksum
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe)
+          if ($installers.Count -ne 1) { throw "Expected one installer; found $($installers.Count)" }
+          New-Item -ItemType Directory -Path windows-alpha | Out-Null
+          Copy-Item $installers[0].FullName windows-alpha/
+          $hash = (Get-FileHash $installers[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($installers[0].Name)" | Set-Content windows-alpha/SHA256SUMS.txt -Encoding utf8
+          "Source commit: $env:GITHUB_SHA`nBuild: https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID" | Set-Content windows-alpha/BUILD.txt -Encoding utf8
+          Copy-Item docs/windows-alpha.md windows-alpha/INSTALL.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-alpha
+          path: windows-alpha/
+          if-no-files-found: error
+          retention-days: 30
