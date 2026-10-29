@@ -204,10 +204,10 @@ switch. Temporary read failures retry after 15 seconds; failures after a switch
 attempt retain a five-minute cooldown to prevent repeated restarts. Overlapping
 checks and manual main-window switches are suppressed. Turning
 off cancels checks before closing starts; an already-started close/switch/reopen
-sequence finishes. Quota requests time out after 15 seconds. Keep Switcher running;
-individual backend usage HTTP requests, including body reads, time out after
+sequence finishes. UI quota checks time out after 15 seconds. Individual backend
+usage HTTP requests, including body reads, time out after
 10 seconds so stalled requests do not accumulate behind UI retries.
-quitting stops monitoring. On macOS 14+, background suspension is disabled for the
+Keep Switcher running; quitting stops monitoring. On macOS 14+, background suspension is disabled for the
 main window so tray mode can keep monitoring. Hidden-window timing on older macOS
 and Windows is platform-dependent and has not been runtime-verified.
 
