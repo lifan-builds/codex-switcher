@@ -41,7 +41,11 @@ pub(super) fn resolve(local_data: &Path, running: &[PathBuf]) -> Option<PathBuf>
 
 fn is_installed_cli(bin: &Path, path: &Path) -> bool {
     // Windows process snapshots may differ in case or separator spelling.
-    let normalize = |path: &Path| path.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+    let normalize = |path: &Path| {
+        path.to_string_lossy()
+            .replace('\\', "/")
+            .to_ascii_lowercase()
+    };
     let bin = normalize(bin);
     let path = normalize(path);
     let Some(relative) = path.strip_prefix(&format!("{}/", bin.trim_end_matches('/'))) else {
@@ -59,18 +63,25 @@ mod tests {
 
     fn fixture() -> (crate::auth::test_support::TestHome, PathBuf) {
         let home = crate::auth::test_support::TestHome::new();
-        let local = crate::auth::test_support::home_dir().unwrap().join("Local App Data");
+        let local = crate::auth::test_support::home_dir()
+            .unwrap()
+            .join("Local App Data");
         std::fs::create_dir_all(&local).unwrap();
         (home, local)
     }
 
     fn cli(local: &Path, version: &str, modified: u64) -> PathBuf {
-        let path = local.join("OpenAI/Codex/bin").join(version).join("codex.exe");
+        let path = local
+            .join("OpenAI/Codex/bin")
+            .join(version)
+            .join("codex.exe");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let file = std::fs::File::create(&path).unwrap();
-        file.set_times(std::fs::FileTimes::new().set_modified(
-            SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(modified),
-        )).unwrap();
+        file.set_times(
+            std::fs::FileTimes::new()
+                .set_modified(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(modified)),
+        )
+        .unwrap();
         path
     }
 
@@ -82,7 +93,10 @@ mod tests {
         std::fs::create_dir_all(local.join("OpenAI/Codex/bin/incomplete-build")).unwrap();
         assert_eq!(resolve(&local, &[]), Some(current.clone()));
         assert_eq!(resolve(&local, &[old.clone()]), Some(old));
-        assert_eq!(resolve(&local, &[local.join("missing/codex.exe")]), Some(current));
+        assert_eq!(
+            resolve(&local, &[local.join("missing/codex.exe")]),
+            Some(current)
+        );
     }
 
     #[test]
@@ -96,7 +110,10 @@ mod tests {
     #[test]
     fn running_candidates_cannot_select_gui_helpers_or_unrelated_executables() {
         let bin = Path::new(r"C:\Users\Test\AppData\Local\OpenAI\Codex\bin");
-        assert!(is_installed_cli(bin, Path::new(r"c:/users/test/appdata/local/openai/codex/bin/build/codex.exe")));
+        assert!(is_installed_cli(
+            bin,
+            Path::new(r"c:/users/test/appdata/local/openai/codex/bin/build/codex.exe")
+        ));
         for path in [
             r"C:\Other\codex.exe",
             r"C:\Users\Test\AppData\Local\OpenAI\Codex\bin-other\codex.exe",

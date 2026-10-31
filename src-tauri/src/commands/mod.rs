@@ -6,11 +6,11 @@ pub mod oauth;
 pub mod process;
 pub mod quota_monitor;
 mod running_recovery;
-#[cfg(any(windows, test))]
-mod windows_cli;
 pub mod session_recovery;
 pub mod usage;
 pub mod window;
+#[cfg(any(windows, test))]
+mod windows_cli;
 
 pub use account::*;
 pub use account_stats::*;

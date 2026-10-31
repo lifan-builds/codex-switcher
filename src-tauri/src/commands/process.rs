@@ -695,9 +695,10 @@ pub(super) fn running_windows_cli_paths() -> Vec<std::path::PathBuf> {
         .into_iter()
         .filter(|process| {
             process.name.eq_ignore_ascii_case("codex.exe")
-                && process.command_line.split_whitespace().any(|arg| {
-                    matches!(arg, "app-server" | "exec-server")
-                })
+                && process
+                    .command_line
+                    .split_whitespace()
+                    .any(|arg| matches!(arg, "app-server" | "exec-server"))
         })
         .map(|process| std::path::PathBuf::from(process.executable_path))
         .collect()

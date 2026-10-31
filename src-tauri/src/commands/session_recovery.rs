@@ -193,10 +193,9 @@ fn codex_binary() -> PathBuf {
     }
     #[cfg(windows)]
     if let Some(local_data) = dirs::data_local_dir() {
-        if let Some(binary) = super::windows_cli::resolve(
-            &local_data,
-            &super::process::running_windows_cli_paths(),
-        ) {
+        if let Some(binary) =
+            super::windows_cli::resolve(&local_data, &super::process::running_windows_cli_paths())
+        {
             return binary;
         }
     }
@@ -602,11 +601,19 @@ mod tests {
         };
         std::fs::write(&session.path, quota_failure()).unwrap();
         let error = super::resume_session(
-            &session, &home, &home.join("missing-codex.exe"),
-            |_| async { panic!("must not open a chat when CLI launch fails") }, 0,
-        ).await.unwrap_err();
+            &session,
+            &home,
+            &home.join("missing-codex.exe"),
+            |_| async { panic!("must not open a chat when CLI launch fails") },
+            0,
+        )
+        .await
+        .unwrap_err();
         assert!(error.contains("Could not run Codex CLI"));
-        assert!(!home.join("switcher-recovery").join(format!("{}.offset", session.id)).exists());
+        assert!(!home
+            .join("switcher-recovery")
+            .join(format!("{}.offset", session.id))
+            .exists());
     }
 
     #[cfg(windows)]
@@ -614,8 +621,15 @@ mod tests {
     #[ignore = "Read-only smoke test for a Windows PC with Codex desktop installed"]
     fn installed_windows_cli_supports_recovery_queue() {
         let binary = super::codex_binary();
-        assert!(binary.is_absolute() && binary.is_file(), "CLI was not discovered: {}", binary.display());
-        let output = std::process::Command::new(&binary).args(["queue", "--help"]).output().unwrap();
+        assert!(
+            binary.is_absolute() && binary.is_file(),
+            "CLI was not discovered: {}",
+            binary.display()
+        );
+        let output = std::process::Command::new(&binary)
+            .args(["queue", "--help"])
+            .output()
+            .unwrap();
         assert!(output.status.success());
         let help = String::from_utf8_lossy(&output.stdout);
         assert!(help.contains("--thread") && help.contains("--message"));
