@@ -163,7 +163,7 @@ export function SettingsModal({
             Auto-switch when the active account runs out of quota
           </label>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            While Switcher is running, check once a minute and use the next saved ChatGPT account with confirmed quota. Automatically close and reopen Codex, even if manual reopening is off. Use graceful closing unless force close is selected above; unsaved work may be lost. Pause five minutes after a switch or error. Enable auto-resume below to continue quota-stopped conversations too.
+            While Switcher is running, check every 15 seconds and use the next saved ChatGPT account with confirmed quota. Automatically close and reopen Codex, even if manual reopening is off. Use graceful closing unless force close is selected above; unsaved work may be lost. Pause one minute after a switch and five minutes after a failed switch attempt. Enable auto-resume below to continue quota-stopped conversations too.
           </p>
           <label className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-gray-100">
             <input
