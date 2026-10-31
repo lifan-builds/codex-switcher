@@ -24,6 +24,22 @@ and a desktop app registered for `codex://` links. Recovery of other running cha
 interrupted by switching is currently macOS-only. Windows end-to-end account
 switching and recovery still need live validation on your machine.
 
+Windows recovery discovers the desktop-managed CLI under
+`%LOCALAPPDATA%\OpenAI\Codex\bin`, including versioned build directories. It
+prefers the running backend's build, then the most recently installed CLI, so
+Start-menu launches do not require a shell-specific `PATH`. `CODEX_BIN` remains
+an explicit override; a standalone `codex` on `PATH` remains the fallback.
+
+The build also provides a `windows-recovery-tests` artifact. On a PC with Codex
+installed, its test executable can run the read-only discovery check:
+
+```powershell
+.\codex_switcher_lib-<build>.exe --ignored --exact commands::session_recovery::tests::installed_windows_cli_supports_recovery_queue --nocapture
+```
+
+This only discovers the executable and runs `queue --help`; it does not switch
+accounts or queue any messages.
+
 ## Building another alpha
 
 Run **Windows fork alpha** from GitHub Actions on the fork's `main` branch. It runs
