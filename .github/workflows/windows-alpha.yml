@@ -28,6 +28,13 @@ jobs:
         run: pnpm test
       - name: Rust tests
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml -- --test-threads=1
+      - name: Save Windows recovery smoke tests
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-recovery-tests
+          path: src-tauri/target/debug/deps/codex_switcher_lib-*.exe
+          if-no-files-found: error
+          retention-days: 7
       - name: Configure alpha
         shell: pwsh
         run: |
