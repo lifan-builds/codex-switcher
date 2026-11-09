@@ -1,8 +1,8 @@
 //! Usage query Tauri commands
 
 use crate::api::usage::{
-    fetch_chatgpt_account_metadata, get_account_usage, refresh_all_usage,
-    warmup_account as send_warmup, ChatGptAccountMetadata,
+    fetch_chatgpt_account_metadata, get_account_usage, warmup_account as send_warmup,
+    ChatGptAccountMetadata,
 };
 use crate::auth::{
     ensure_chatgpt_tokens_fresh, get_account, load_accounts, update_account_metadata,
@@ -101,13 +101,6 @@ pub async fn refresh_account_metadata(account_id: String) -> Result<AccountInfo,
         info.subscription_expires_at = metadata.subscription_expires_at;
     }
     Ok(info)
-}
-
-/// Refresh usage info for all accounts
-#[tauri::command]
-pub async fn refresh_all_accounts_usage() -> Result<Vec<UsageInfo>, String> {
-    let store = load_accounts().map_err(|e| e.to_string())?;
-    Ok(refresh_all_usage(&store.accounts).await)
 }
 
 /// Send a minimal warm-up request for one account

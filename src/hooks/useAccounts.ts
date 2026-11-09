@@ -279,134 +279,94 @@ export function useAccounts() {
 
   const switchAccount = useCallback(
     async (accountId: string, expectedActiveId?: string) => {
-      try {
-        await invokeBackend(expectedActiveId ? "switch_account_if_current" : "switch_account", { accountId, ...(expectedActiveId ? { expectedActiveId } : {}) });
-        await loadAccounts(true); // Preserve usage data
-      } catch (err) {
-        throw err;
-      }
+      await invokeBackend(expectedActiveId ? "switch_account_if_current" : "switch_account", { accountId, ...(expectedActiveId ? { expectedActiveId } : {}) });
+      await loadAccounts(true); // Preserve usage data
     },
     [loadAccounts]
   );
 
   const deleteAccount = useCallback(
     async (accountId: string) => {
-      try {
-        await invokeBackend("delete_account", { accountId });
-        // Account activation can change while deletion is in flight. Re-read
-        // backend metadata without discarding the latest cached usage.
-        await loadAccounts(true);
-      } catch (err) {
-        throw err;
-      }
+      await invokeBackend("delete_account", { accountId });
+      // Account activation can change while deletion is in flight. Re-read
+      // backend metadata without discarding the latest cached usage.
+      await loadAccounts(true);
     },
     [loadAccounts]
   );
 
   const renameAccount = useCallback(
     async (accountId: string, newName: string) => {
-      try {
-        await invokeBackend("rename_account", { accountId, newName });
-        await loadAccounts(true); // Preserve usage data
-      } catch (err) {
-        throw err;
-      }
+      await invokeBackend("rename_account", { accountId, newName });
+      await loadAccounts(true); // Preserve usage data
     },
     [loadAccounts]
   );
 
   const importFromFile = useCallback(
     async (source: FileSource, name: string) => {
-      try {
-        if (typeof source === "string") {
-          await invokeBackend<AccountInfo>("add_account_from_file", { path: source, name });
-        } else {
-          const contents = await source.text();
-          await invokeBackend<AccountInfo>("add_account_from_auth_json_text", {
-            name,
-            contents,
-          });
-        }
-        const accountList = await loadAccounts();
-        await refreshUsage(accountList);
-      } catch (err) {
-        throw err;
+      if (typeof source === "string") {
+        await invokeBackend<AccountInfo>("add_account_from_file", { path: source, name });
+      } else {
+        const contents = await source.text();
+        await invokeBackend<AccountInfo>("add_account_from_auth_json_text", {
+          name,
+          contents,
+        });
       }
+      const accountList = await loadAccounts();
+      await refreshUsage(accountList);
     },
     [loadAccounts, refreshUsage]
   );
 
   const startOAuthLogin = useCallback(async (accountName: string, reauthAccountId?: string) => {
-    try {
-      const info = await invokeBackend<{ auth_url: string; callback_port: number }>(
-        "start_login",
-        { accountName, reauthAccountId }
-      );
-      return info;
-    } catch (err) {
-      throw err;
-    }
+    const info = await invokeBackend<{ auth_url: string; callback_port: number }>(
+      "start_login",
+      { accountName, reauthAccountId }
+    );
+    return info;
   }, []);
 
   const completeOAuthLogin = useCallback(async () => {
-    try {
-      const account = await invokeBackend<AccountInfo>("complete_login");
-      const accountList = await loadAccounts();
-      await refreshUsage(accountList);
-      return account;
-    } catch (err) {
-      throw err;
-    }
+    const account = await invokeBackend<AccountInfo>("complete_login");
+    const accountList = await loadAccounts();
+    await refreshUsage(accountList);
+    return account;
   }, [loadAccounts, refreshUsage]);
 
   const exportAccountsSlimText = useCallback(async () => {
-    try {
-      return await invokeBackend<string>("export_accounts_slim_text");
-    } catch (err) {
-      throw err;
-    }
+    return await invokeBackend<string>("export_accounts_slim_text");
   }, []);
 
   const importAccountsSlimText = useCallback(
     async (payload: string) => {
-      try {
-        const summary = await invokeBackend<ImportAccountsSummary>("import_accounts_slim_text", {
-          payload,
-        });
-        const accountList = await loadAccounts();
-        await refreshUsage(accountList);
-        return summary;
-      } catch (err) {
-        throw err;
-      }
+      const summary = await invokeBackend<ImportAccountsSummary>("import_accounts_slim_text", {
+        payload,
+      });
+      const accountList = await loadAccounts();
+      await refreshUsage(accountList);
+      return summary;
     },
     [loadAccounts, refreshUsage]
   );
 
   const exportAccountsFullEncryptedFile = useCallback(
     async (path: string) => {
-      try {
-        await invokeBackend("export_accounts_full_encrypted_file", { path });
-      } catch (err) {
-        throw err;
-      }
+      await invokeBackend("export_accounts_full_encrypted_file", { path });
     },
     []
   );
 
   const importAccountsFullEncryptedFile = useCallback(
     async (path: string) => {
-      try {
-        const summary = await invokeBackend<ImportAccountsSummary>(
-          "import_accounts_full_encrypted_file",
-          { path }
-        );
-        const accountList = await loadAccounts();
-        await refreshUsage(accountList);
-        return summary;
-      } catch (err) {
-        throw err;
-      }
+      const summary = await invokeBackend<ImportAccountsSummary>(
+        "import_accounts_full_encrypted_file",
+        { path }
+      );
+      const accountList = await loadAccounts();
+      await refreshUsage(accountList);
+      return summary;
     },
     [loadAccounts, refreshUsage]
   );
@@ -466,7 +426,7 @@ export function useAccounts() {
     let unlisten: (() => void) | undefined;
 
     void (async () => {
-      if (!("__TAURI_INTERNALS__" in window)) return;
+      if (!isTauriRuntime()) return;
       const { listen } = await import("@tauri-apps/api/event");
       unlisten = await listen("accounts-changed", () => {
         void loadAccounts(true);

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AccountInfo, AccountUsageStats, DockDisplayMode, UsageInfo } from "./types";
-import { invokeBackend, isTauriRuntime } from "./lib/platform";
+import { formatError, invokeBackend, isTauriRuntime } from "./lib/platform";
 import {
   applyTheme,
   syncThemeFromStorage,
@@ -12,23 +12,18 @@ import {
   readAutoWarmupAllEnabled,
   writeAutoWarmupAllEnabled,
 } from "./lib/autoWarmup";
+import {
+  formatExactResetTime,
+  formatResetTime,
+  formatTokens,
+  sumDailyTokens,
+} from "./lib/usageFormatting";
 
 const TRAY_REFRESH_EVENT = "tray-refresh";
 const ACCOUNTS_CHANGED_EVENT = "accounts-changed";
 const SWITCH_ACCOUNT_BLOCKED_EVENT = "switch-account-blocked";
 // Mirrors the backend guard message in process.rs (ensure_codex_not_running).
 const CODEX_RUNNING_PREFIX = "Cannot switch accounts while";
-
-function formatError(err: unknown): string {
-  if (!err) return "Unknown error";
-  if (err instanceof Error && err.message) return err.message;
-  if (typeof err === "string") return err;
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return "Unknown error";
-  }
-}
 
 // "plus" -> "Plus". Returns null when there is no usable plan label.
 function formatPlan(plan: string | null): string | null {
@@ -54,63 +49,6 @@ function remainingTone(remaining: number): { text: string; bar: string; dot: str
     bar: "bg-emerald-500",
     dot: "bg-emerald-500",
   };
-}
-
-// "time until reset" label, e.g. "4h 55m" / "4d 18h" / "now".
-function formatResetAt(resetAt: number | null | undefined): string | null {
-  if (!resetAt) return null;
-
-  const diff = resetAt - Math.floor(Date.now() / 1000);
-  if (diff <= 0) return "now";
-  if (diff < 60) return `${diff}s`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-  if (diff < 86_400) {
-    return `${Math.floor(diff / 3600)}h ${Math.floor((diff % 3600) / 60)}m`;
-  }
-  return `${Math.floor(diff / 86_400)}d ${Math.floor((diff % 86_400) / 3600)}h`;
-}
-
-function formatExactResetTime(
-  resetAt: number | null | undefined,
-  isWeekly: boolean,
-): string | null {
-  if (!resetAt) return null;
-
-  const date = new Date(resetAt * 1000);
-  const diff = resetAt - Math.floor(Date.now() / 1000);
-
-  if (isWeekly && diff > 86_400) {
-    return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
-  }
-
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  const period = date.getHours() >= 12 ? "PM" : "AM";
-  const hour12 = date.getHours() % 12 || 12;
-
-  return `${hour12}:${minutes} ${period}`;
-}
-
-function formatTokens(tokens: number | null | undefined): string {
-  if (tokens === null || tokens === undefined || !Number.isFinite(tokens)) return "--";
-  const abs = Math.abs(tokens);
-  if (abs >= 1_000_000_000) return `${(tokens / 1_000_000_000).toFixed(1)}B`;
-  if (abs >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${(tokens / 1_000).toFixed(1)}K`;
-  return `${tokens}`;
-}
-
-function dayKey(offset: number): string {
-  const date = new Date();
-  date.setDate(date.getDate() - offset);
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function sumDailyTokens(stats: AccountUsageStats, days: number): number {
-  const keys = new Set(Array.from({ length: days }, (_, index) => dayKey(index)));
-  return stats.daily.reduce((total, day) => (keys.has(day.date) ? total + day.tokens : total), 0);
 }
 
 function retainUsageForAccounts(
@@ -464,8 +402,11 @@ function TrayMenu() {
                       {windows.map((w) => {
                         const remaining = Math.max(0, 100 - w.used);
                         const tone = remainingTone(remaining);
-                        const reset = formatResetAt(w.resetAt);
-                        const exactReset = formatExactResetTime(w.resetAt, w.label === "Weekly");
+                        const reset = formatResetTime(w.resetAt);
+                        const exactReset = formatExactResetTime(w.resetAt, {
+                          compact: true,
+                          isWeekly: w.label === "Weekly",
+                        });
                         return (
                           <span key={w.label} className="block">
                             <span className="flex items-center gap-1">
@@ -510,13 +451,13 @@ function TrayMenu() {
                     <span className="mt-2 grid grid-cols-2 gap-1.5">
                       <span className="rounded-md bg-white px-2 py-1 text-[11px] text-gray-600 shadow-sm dark:bg-gray-950 dark:text-gray-300">
                         <span className="block font-medium text-gray-900 dark:text-gray-100">
-                          {formatTokens(sumDailyTokens(stats, 1))}
+                          {formatTokens(sumDailyTokens(stats.daily, 1))}
                         </span>
                         <span>today</span>
                       </span>
                       <span className="rounded-md bg-white px-2 py-1 text-[11px] text-gray-600 shadow-sm dark:bg-gray-950 dark:text-gray-300">
                         <span className="block font-medium text-gray-900 dark:text-gray-100">
-                          {formatTokens(sumDailyTokens(stats, 7))}
+                          {formatTokens(sumDailyTokens(stats.daily, 7))}
                         </span>
                         <span>last 7 days</span>
                       </span>

@@ -49,7 +49,7 @@ export function getAutoWarmupWindowKind(
   return null;
 }
 
-export function getAutoWarmupWindow(
+function getAutoWarmupWindow(
   usage: UsageInfo | undefined
 ): AutoWarmupWindow | null {
   const kind = getAutoWarmupWindowKind(usage);
@@ -76,7 +76,7 @@ export function getAutoWarmupWindowKey(window: AutoWarmupWindow): string {
   return `${window.kind}:${window.windowMinutes}:${window.resetsAt}`;
 }
 
-export function isAutoWarmupWindowFresh(
+function isAutoWarmupWindowFresh(
   window: AutoWarmupWindow,
   nowMs = Date.now()
 ): boolean {

@@ -1,31 +1,9 @@
 import type { UsageInfo } from "../types";
+import { formatExactResetTime, formatResetTime } from "../lib/usageFormatting";
 
 interface UsageBarProps {
   usage?: UsageInfo;
   loading?: boolean;
-}
-
-function formatResetTime(resetAt: number | null | undefined): string {
-  if (!resetAt) return "";
-  const now = Math.floor(Date.now() / 1000);
-  const diff = resetAt - now;
-  if (diff <= 0) return "now";
-  if (diff < 60) return `${diff}s`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-  return `${Math.floor(diff / 3600)}h ${Math.floor((diff % 3600) / 60)}m`;
-}
-
-function formatExactResetTime(resetAt: number | null | undefined): string {
-  if (!resetAt) return "";
-
-  const date = new Date(resetAt * 1000);
-  const month = new Intl.DateTimeFormat(undefined, { month: "long" }).format(date);
-  const day = date.getDate();
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  const period = date.getHours() >= 12 ? "PM" : "AM";
-  const hour12 = date.getHours() % 12 || 12;
-
-  return `${month} ${day}, ${hour12}:${minutes} ${period}`;
 }
 
 function formatWindowDuration(minutes: number | null | undefined): string {

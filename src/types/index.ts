@@ -94,11 +94,6 @@ export interface AccountUsageStats {
   error: string | null;
 }
 
-export interface OAuthLoginInfo {
-  auth_url: string;
-  callback_port: number;
-}
-
 export interface AccountWithUsage extends AccountInfo {
   usage?: UsageInfo;
   usageLoading?: boolean;

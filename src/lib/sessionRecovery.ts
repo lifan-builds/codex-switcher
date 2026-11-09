@@ -1,4 +1,4 @@
-export const AUTO_RESUME_SESSIONS_STORAGE_KEY = "auto-resume-interrupted-codex-sessions";
+const AUTO_RESUME_SESSIONS_STORAGE_KEY = "auto-resume-interrupted-codex-sessions";
 
 export function readAutoResumeSessions(): boolean {
   try {

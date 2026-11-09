@@ -6,6 +6,7 @@ import type {
   UsageInfo,
 } from "../types";
 import { invokeBackend } from "../lib/platform";
+import { dayKey, formatTokens, sumDailyTokens } from "../lib/usageFormatting";
 
 interface AccountUsageStatsProps {
   accountId: string;
@@ -45,15 +46,6 @@ function emptyStats(accountId: string, error: string): AccountUsageStatsInfo {
   };
 }
 
-function formatTokens(tokens: number | null | undefined): string {
-  if (tokens === null || tokens === undefined || !Number.isFinite(tokens)) return "--";
-  const abs = Math.abs(tokens);
-  if (abs >= 1_000_000_000) return `${(tokens / 1_000_000_000).toFixed(1)}B`;
-  if (abs >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${(tokens / 1_000).toFixed(1)}K`;
-  return `${tokens}`;
-}
-
 function formatNumber(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "--";
   return new Intl.NumberFormat().format(value);
@@ -88,20 +80,6 @@ function formatGeneratedAt(value: string | null): string {
   if (diff < 60 * 60_000) return `${Math.floor(diff / 60_000)}m ago`;
   if (diff < 24 * 60 * 60_000) return `${Math.floor(diff / (60 * 60_000))}h ago`;
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
-}
-
-function dayKey(offset: number): string {
-  const date = new Date();
-  date.setDate(date.getDate() - offset);
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function sumDays(daily: AccountDailyUsage[], days: number): number {
-  const keys = new Set(Array.from({ length: days }, (_, index) => dayKey(index)));
-  return daily.reduce((total, day) => (keys.has(day.date) ? total + day.tokens : total), 0);
 }
 
 type ActivityRange = 30 | 90 | 180 | "all";
@@ -412,9 +390,9 @@ export function AccountUsageStats({
 
   const currentStats = stats?.account_id === accountId ? stats : null;
   const generatedAt = currentStats ? formatGeneratedAt(currentStats.generated_at) : "";
-  const todayTokens = currentStats ? sumDays(currentStats.daily, 1) : null;
-  const sevenDayTokens = currentStats ? sumDays(currentStats.daily, 7) : null;
-  const thirtyDayTokens = currentStats ? sumDays(currentStats.daily, 30) : null;
+  const todayTokens = currentStats ? sumDailyTokens(currentStats.daily, 1) : null;
+  const sevenDayTokens = currentStats ? sumDailyTokens(currentStats.daily, 7) : null;
+  const thirtyDayTokens = currentStats ? sumDailyTokens(currentStats.daily, 30) : null;
 
   if (!open) return null;
 

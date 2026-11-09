@@ -2,6 +2,17 @@ import type { ImportAccountsSummary } from "../types";
 
 export type FileSource = string | File;
 
+export function formatError(err: unknown): string {
+  if (!err) return "Unknown error";
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return "Unknown error";
+  }
+}
+
 export function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }

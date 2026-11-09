@@ -1,26 +1,21 @@
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
-const root = process.cwd();
-const input = process.argv[2];
+export const VERSION_FILES = [
+  "package.json",
+  "src-tauri/tauri.conf.json",
+  "src-tauri/Cargo.toml",
+  "src-tauri/Cargo.lock",
+];
 
-if (!input) {
-  console.error(
-    "Usage: node scripts/bump-version.mjs <version|major|minor|patch>",
-  );
-  process.exit(1);
-}
+const PACKAGE_VERSION_RE = /"version"\s*:\s*"(\d+\.\d+\.\d+)"/;
+const CARGO_VERSION_RE = /^version\s*=\s*"(\d+\.\d+\.\d+)"/m;
+const CARGO_LOCK_BLOCK_RE =
+  /(\[\[package\]\]\nname = "codex-switcher"\nversion = ")(\d+\.\d+\.\d+)("[\s\S]*?\n\n)/;
 
-const isBumpType = ["major", "minor", "patch"].includes(input);
-
-const readFile = (relativePath) =>
-  fs.readFileSync(path.join(root, relativePath), "utf8");
-
-const writeFile = (relativePath, contents) =>
-  fs.writeFileSync(path.join(root, relativePath), contents, "utf8");
-
-const parseVersion = (version) => {
-  const match = version.match(/^(\d+)\.(\d+)\.(\d+)$/);
+export const parseVersion = (version) => {
+  const match = version?.match(/^(\d+)\.(\d+)\.(\d+)$/);
   if (!match) return null;
   return {
     major: Number(match[1]),
@@ -29,89 +24,80 @@ const parseVersion = (version) => {
   };
 };
 
-const formatVersion = ({ major, minor, patch }) =>
-  `${major}.${minor}.${patch}`;
-
-const bumpVersion = (version, bumpType) => {
+export const bumpVersion = (version, bumpType) => {
   const parsed = parseVersion(version);
   if (!parsed) return null;
-  if (bumpType === "major") {
-    return formatVersion({
-      major: parsed.major + 1,
-      minor: 0,
-      patch: 0,
-    });
-  }
-  if (bumpType === "minor") {
-    return formatVersion({
-      major: parsed.major,
-      minor: parsed.minor + 1,
-      patch: 0,
-    });
-  }
-  return formatVersion({
-    major: parsed.major,
-    minor: parsed.minor,
-    patch: parsed.patch + 1,
-  });
+  if (bumpType === "major") return `${parsed.major + 1}.0.0`;
+  if (bumpType === "minor") return `${parsed.major}.${parsed.minor + 1}.0`;
+  if (bumpType === "patch") return `${parsed.major}.${parsed.minor}.${parsed.patch + 1}`;
+  return null;
 };
 
-const packageJson = readFile("package.json");
-const currentVersionMatch = packageJson.match(
-  /"version"\s*:\s*"(\d+\.\d+\.\d+)"/,
-);
+export const resolveNextVersion = (currentVersion, input) => {
+  const candidate = ["major", "minor", "patch"].includes(input)
+    ? bumpVersion(currentVersion, input)
+    : input;
+  return candidate && parseVersion(candidate) ? candidate : null;
+};
 
-if (!currentVersionMatch) {
-  console.error("Could not find version in package.json");
-  process.exit(1);
-}
+export const parsePackageVersion = (contents) =>
+  contents.match(PACKAGE_VERSION_RE)?.[1] ?? null;
 
-const currentVersion = currentVersionMatch[1];
-const nextVersion = isBumpType
-  ? bumpVersion(currentVersion, input)
-  : input;
+export const getVersionSnapshot = (root = process.cwd()) => {
+  const read = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
+  return {
+    "package.json": parsePackageVersion(read("package.json")),
+    "src-tauri/tauri.conf.json": parsePackageVersion(read("src-tauri/tauri.conf.json")),
+    "src-tauri/Cargo.toml": read("src-tauri/Cargo.toml").match(CARGO_VERSION_RE)?.[1] ?? null,
+    "src-tauri/Cargo.lock": read("src-tauri/Cargo.lock").match(CARGO_LOCK_BLOCK_RE)?.[2] ?? null,
+  };
+};
 
-if (!nextVersion || !parseVersion(nextVersion)) {
-  console.error(`Invalid version: ${input}`);
-  process.exit(1);
-}
+export const bumpWorkspaceVersion = (input, root = process.cwd()) => {
+  const read = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
+  const write = (rel, contents) => fs.writeFileSync(path.join(root, rel), contents, "utf8");
 
-const replaceJsonVersion = (contents) =>
-  contents.replace(
-    /"version"\s*:\s*"\d+\.\d+\.\d+"/,
-    `"version": "${nextVersion}"`,
+  const packageJson = read("package.json");
+  const currentVersion = parsePackageVersion(packageJson);
+  if (!currentVersion) {
+    throw new Error("Could not find version in package.json");
+  }
+
+  const nextVersion = resolveNextVersion(currentVersion, input);
+  if (!nextVersion) {
+    throw new Error(`Invalid version: ${input}`);
+  }
+
+  const cargoLock = read("src-tauri/Cargo.lock");
+  if (!CARGO_LOCK_BLOCK_RE.test(cargoLock)) {
+    throw new Error("Could not find codex-switcher package in Cargo.lock");
+  }
+
+  const replaceJsonVersion = (contents) =>
+    contents.replace(PACKAGE_VERSION_RE, `"version": "${nextVersion}"`);
+
+  write("package.json", replaceJsonVersion(packageJson));
+  write("src-tauri/tauri.conf.json", replaceJsonVersion(read("src-tauri/tauri.conf.json")));
+  write(
+    "src-tauri/Cargo.toml",
+    read("src-tauri/Cargo.toml").replace(CARGO_VERSION_RE, `version = "${nextVersion}"`),
   );
+  write("src-tauri/Cargo.lock", cargoLock.replace(CARGO_LOCK_BLOCK_RE, `$1${nextVersion}$3`));
 
-const replaceCargoVersion = (contents) =>
-  contents.replace(
-    /^version\s*=\s*"\d+\.\d+\.\d+"/m,
-    `version = "${nextVersion}"`,
-  );
+  return { currentVersion, nextVersion };
+};
 
-const replaceCargoLockVersion = (contents) => {
-  const blockRegex =
-    /(\[\[package\]\]\nname = "codex-switcher"\nversion = ")\d+\.\d+\.\d+("[\s\S]*?\n\n)/;
-  if (!blockRegex.test(contents)) {
-    console.error(
-      "Could not find codex-switcher package in Cargo.lock",
-    );
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const input = process.argv[2];
+  if (!input) {
+    console.error("Usage: node scripts/bump-version.mjs <version|major|minor|patch>");
     process.exit(1);
   }
-  return contents.replace(blockRegex, `$1${nextVersion}$2`);
-};
-
-writeFile("package.json", replaceJsonVersion(packageJson));
-writeFile(
-  "src-tauri/tauri.conf.json",
-  replaceJsonVersion(readFile("src-tauri/tauri.conf.json")),
-);
-writeFile(
-  "src-tauri/Cargo.toml",
-  replaceCargoVersion(readFile("src-tauri/Cargo.toml")),
-);
-writeFile(
-  "src-tauri/Cargo.lock",
-  replaceCargoLockVersion(readFile("src-tauri/Cargo.lock")),
-);
-
-console.log(`Version bumped: ${currentVersion} -> ${nextVersion}`);
+  try {
+    const { currentVersion, nextVersion } = bumpWorkspaceVersion(input);
+    console.log(`Version bumped: ${currentVersion} -> ${nextVersion}`);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+}

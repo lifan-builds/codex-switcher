@@ -2,8 +2,8 @@ import type { AccountInfo, CodexProcessInfo, UsageInfo } from "../types";
 
 export const AUTO_SWITCH_STORAGE_KEY = "auto-switch-exhausted-codex-account";
 export const AUTO_SWITCH_INTERVAL_MS = 15_000;
-export const AUTO_SWITCH_COOLDOWN_MS = 5 * 60_000;
-export const AUTO_SWITCH_SETTLE_MS = 60_000;
+const AUTO_SWITCH_COOLDOWN_MS = 5 * 60_000;
+const AUTO_SWITCH_SETTLE_MS = 60_000;
 
 // Read failures should not impose the longer backoff used after a failed mutation.
 export class AutoSwitchSchedule {

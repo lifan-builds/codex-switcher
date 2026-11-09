@@ -2,7 +2,6 @@
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use futures::{stream, StreamExt};
 use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue, AUTHORIZATION, USER_AGENT},
     StatusCode,
@@ -13,8 +12,7 @@ use std::collections::HashMap;
 
 use crate::auth::{ensure_chatgpt_tokens_fresh, refresh_chatgpt_tokens};
 use crate::types::{
-    AuthData, CreditStatusDetails, RateLimitDetails, RateLimitStatusPayload, RateLimitWindow,
-    StoredAccount, UsageInfo,
+    AuthData, RateLimitDetails, RateLimitStatusPayload, RateLimitWindow, StoredAccount, UsageInfo,
 };
 
 const CHATGPT_BACKEND_API: &str = "https://chatgpt.com/backend-api";
@@ -481,7 +479,7 @@ fn collect_last_text(value: &Value, last: &mut Option<String>) {
 /// Convert API response to UsageInfo
 fn convert_payload_to_usage_info(account_id: &str, payload: RateLimitStatusPayload) -> UsageInfo {
     let (primary, secondary) = extract_rate_limits(payload.rate_limit);
-    let credits = extract_credits(payload.credits);
+    let credits = payload.credits;
 
     UsageInfo {
         account_id: account_id.to_string(),
@@ -533,30 +531,6 @@ fn is_session_window(window: &RateLimitWindow) -> bool {
 
 fn is_weekly_window(window: &RateLimitWindow) -> bool {
     window.limit_window_seconds == Some(WEEKLY_WINDOW_SECONDS)
-}
-
-fn extract_credits(credits: Option<CreditStatusDetails>) -> Option<CreditStatusDetails> {
-    credits
-}
-
-/// Refresh all account usage
-pub async fn refresh_all_usage(accounts: &[StoredAccount]) -> Vec<UsageInfo> {
-    let concurrency = accounts.len().min(10).max(1);
-    let results: Vec<UsageInfo> = stream::iter(accounts.iter().cloned())
-        .map(|account| async move {
-            match get_account_usage(&account).await {
-                Ok(info) => info,
-                Err(e) => {
-                    println!("[Usage] Error for {}: {}", account.name, e);
-                    UsageInfo::error(account.id.clone(), e.to_string())
-                }
-            }
-        })
-        .buffer_unordered(concurrency)
-        .collect()
-        .await;
-
-    results
 }
 
 #[cfg(test)]

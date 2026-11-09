@@ -13,6 +13,7 @@ import { AccountCard, AddAccountModal, UpdateChecker, WindowResizeBorders } from
 import type { AccountInfo, AccountWithUsage, CodexProcessInfo, DockDisplayMode, UsageInfo } from "./types";
 import {
   exportFullBackupFile,
+  formatError as formatWarmupError,
   importFullBackupFile,
   isTauriRuntime,
   invokeBackend,
@@ -623,17 +624,6 @@ function App() {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setWarmupToast({ message, isError });
     toastTimerRef.current = setTimeout(() => setWarmupToast(null), isError ? 10000 : 2500);
-  }, []);
-
-  const formatWarmupError = useCallback((err: unknown) => {
-    if (!err) return "Unknown error";
-    if (err instanceof Error && err.message) return err.message;
-    if (typeof err === "string") return err;
-    try {
-      return JSON.stringify(err);
-    } catch {
-      return "Unknown error";
-    }
   }, []);
 
   const markSuccessfulWarmup = useCallback(

@@ -144,14 +144,6 @@ pub fn read_current_auth() -> Result<Option<AuthDotJson>> {
     Ok(Some(auth))
 }
 
-/// Check if there is an active Codex login
-pub fn has_active_login() -> Result<bool> {
-    match read_current_auth()? {
-        Some(auth) => Ok(auth.openai_api_key.is_some() || auth.tokens.is_some()),
-        None => Ok(false),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::import_from_auth_json_contents;

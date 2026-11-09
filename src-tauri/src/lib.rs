@@ -17,9 +17,9 @@ use commands::{
     get_active_account_info, get_dock_display_mode, get_masked_account_ids, get_usage,
     hide_tray_window, import_accounts_full_encrypted_file, import_accounts_slim_text,
     kill_codex_processes, list_accounts, open_codex_recovery_conversation, open_main_window,
-    prepare_codex_session_recovery, quit_app, refresh_account_metadata, refresh_all_accounts_usage,
-    rename_account, report_usage, resume_codex_session_recovery, set_dock_display_mode,
-    set_masked_account_ids, start_login, switch_account, warmup_account, warmup_all_accounts,
+    prepare_codex_session_recovery, quit_app, refresh_account_metadata, rename_account,
+    report_usage, resume_codex_session_recovery, set_dock_display_mode, set_masked_account_ids,
+    start_login, switch_account, warmup_account, warmup_all_accounts,
 };
 use tauri::Emitter;
 
@@ -91,7 +91,6 @@ pub fn run() {
             commands::quota_monitor::set_quota_monitor,
             get_account_usage_stats,
             refresh_account_metadata,
-            refresh_all_accounts_usage,
             warmup_account,
             warmup_all_accounts,
             // Process detection
