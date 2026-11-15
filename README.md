@@ -67,7 +67,7 @@ from inside the app.
 
 #### Prerequisites
 
-- [Node.js](https://nodejs.org/) (v18+)
+- [Node.js](https://nodejs.org/) (v22.18+ or Node 24 LTS)
 - [pnpm](https://pnpm.io/)
 - [Rust](https://rustup.rs/)
 
