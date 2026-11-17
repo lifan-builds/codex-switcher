@@ -1,22 +1,38 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useQuotaAutoSwitch } from "./hooks/useQuotaAutoSwitch";
-import { AUTO_SWITCH_STORAGE_KEY, readAutoSwitchEnabled } from "./lib/quotaAutoSwitch";
+import {
+  AUTO_SWITCH_STORAGE_KEY,
+  readAutoSwitchEnabled,
+  useQuotaAutoSwitch,
+} from "./lib/quotaAutoSwitch";
 import { useAccounts } from "./hooks/useAccounts";
-import { useDesktopReopen } from "./hooks/useDesktopReopen";
-import { useCodexClosePreference } from "./hooks/useCodexClosePreference";
+import {
+  finishForceClose,
+  readAutoResumeSessions,
+  useCodexClosePreference,
+  useDesktopReopen,
+  useForceCloseCodexProcesses,
+  writeAutoResumeSessions,
+  type CodexClosePreference,
+  type DesktopReopenPreference,
+  type RecoveryProgress,
+  type RecoveryReport,
+  type RecoveryState,
+} from "./lib/desktopReopen";
+import { AccountCard } from "./components/AccountCard";
+import { AddAccountModal } from "./components/AddAccountModal";
 import { SessionRecoveryPanel } from "./components/SessionRecoveryPanel";
 import { SettingsModal } from "./components/SettingsModal";
-import { finishForceClose, type DesktopReopenPreference } from "./lib/desktopReopen";
-import type { CodexClosePreference } from "./lib/codexClosePreference";
-import { useForceCloseCodexProcesses } from "./hooks/useForceCloseCodexProcesses";
-import { AccountCard, AddAccountModal, UpdateChecker, WindowResizeBorders } from "./components";
+import { UpdateChecker } from "./components/UpdateChecker";
+import { WindowResizeBorders } from "./components/WindowResizeBorders";
 import type { AccountInfo, AccountWithUsage, CodexProcessInfo, DockDisplayMode, UsageInfo } from "./types";
 import {
   exportFullBackupFile,
   formatError as formatWarmupError,
+  getTauriWindow,
   importFullBackupFile,
-  isTauriRuntime,
   invokeBackend,
+  isMacOs,
+  isTauriRuntime,
 } from "./lib/platform";
 import {
   applyTheme,
@@ -30,28 +46,29 @@ import {
   AUTO_WARMUP_ALL_CHANGED_EVENT,
   AUTO_WARMUP_LEDGER_STORAGE_KEY,
   TIMED_WARMUP_LEDGER_STORAGE_KEY,
+  getAutoWarmupWindowKey,
+  getAutoWarmupWindowKind,
+  getDueAutoWarmupWindow,
+  getTimedWarmupTargets,
+  isLimitFull,
   normalizeTimedWarmupTimes,
   readAutoWarmupAllEnabled,
+  readStoredAutoWarmupAccountIds,
+  readStoredAutoWarmupLedger,
+  readStoredTimedWarmupLedger,
   readTimedWarmupEnabled,
   readTimedWarmupTimes,
   writeAutoWarmupAllEnabled,
   writeTimedWarmupEnabled,
   writeTimedWarmupTimes,
-} from "./lib/autoWarmup";
-import {
-  getAutoWarmupWindowKey,
-  getAutoWarmupWindowKind,
-  getDueAutoWarmupWindow,
+  type AutoWarmupLedger,
   type AutoWarmupWindow,
-  type AutoWarmupWindowKind,
-} from "./lib/autoWarmupPolicy";
-import { getTauriWindow } from "./lib/tauriWindow";
-import { readAutoResumeSessions, writeAutoResumeSessions, type RecoveryState, type RecoveryProgress, type RecoveryReport } from "./lib/sessionRecovery";
+} from "./lib/autoWarmup";
+import { formatWindowDuration } from "./lib/usageFormatting";
 import "./App.css";
 
 const AUTO_WARMUP_CHECK_INTERVAL_MS = 30 * 1000;
 const AUTO_WARMUP_RETRY_BACKOFF_MS = 60 * 1000;
-const LIMIT_FULL_THRESHOLD = 99.5;
 const ACCOUNT_SEARCH_THRESHOLD = 8;
 const SWITCH_ACCOUNT_BLOCKED_EVENT = "switch-account-blocked";
 const CLOSE_BEHAVIOR_REQUESTED_EVENT = "close-behavior-requested";
@@ -62,82 +79,6 @@ interface SwitchAccountBlockedPayload {
 interface CloseBehaviorRequestedPayload {
   requestId?: number;
 }
-type AutoWarmupLedger = Record<
-  string,
-  {
-    lastSuccessfulWarmupAt?: number;
-    lastAutoWindowKey?: string;
-    lastAutoWindowKind?: AutoWarmupWindowKind;
-  }
->;
-const isMacOs =
-  typeof navigator !== "undefined" &&
-  /(Mac|iPhone|iPod|iPad)/i.test(navigator.userAgent);
-
-function readStoredStringArray(key: string): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(key) ?? "[]");
-    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function readStoredAutoWarmupLedger(): AutoWarmupLedger {
-  if (typeof window === "undefined") return {};
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(AUTO_WARMUP_LEDGER_STORAGE_KEY) ?? "{}");
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-
-    const entries: Array<[string, AutoWarmupLedger[string]]> = [];
-    for (const [accountId, value] of Object.entries(parsed)) {
-      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-
-      const entry: AutoWarmupLedger[string] = {};
-      if (
-        "lastSuccessfulWarmupAt" in value &&
-        typeof value.lastSuccessfulWarmupAt === "number"
-      ) {
-        entry.lastSuccessfulWarmupAt = value.lastSuccessfulWarmupAt;
-      }
-      if ("lastAutoWindowKey" in value && typeof value.lastAutoWindowKey === "string") {
-        entry.lastAutoWindowKey = value.lastAutoWindowKey;
-      }
-      if (
-        "lastAutoWindowKind" in value &&
-        (value.lastAutoWindowKind === "session" || value.lastAutoWindowKind === "weekly")
-      ) {
-        entry.lastAutoWindowKind = value.lastAutoWindowKind;
-      }
-
-      if (Object.keys(entry).length > 0) entries.push([accountId, entry]);
-    }
-    return Object.fromEntries(entries);
-  } catch {
-    return {};
-  }
-}
-
-function readStoredTimedWarmupLedger(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(TIMED_WARMUP_LEDGER_STORAGE_KEY) ?? "{}");
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    return Object.fromEntries(
-      Object.entries(parsed).filter(
-        (entry): entry is [string, string] =>
-          typeof entry[0] === "string" && typeof entry[1] === "string"
-      )
-    );
-  } catch {
-    return {};
-  }
-}
-
-function isLimitFull(usedPercent: number | null | undefined): boolean {
-  return usedPercent !== null && usedPercent !== undefined && usedPercent >= LIMIT_FULL_THRESHOLD;
-}
 
 function getPreferredUsedPercent(usage: UsageInfo | undefined): number | null | undefined {
   return usage?.primary_used_percent ?? usage?.secondary_used_percent;
@@ -145,16 +86,6 @@ function getPreferredUsedPercent(usage: UsageInfo | undefined): number | null | 
 
 function getPreferredResetsAt(usage: UsageInfo | undefined): number | null | undefined {
   return usage?.primary_resets_at ?? usage?.secondary_resets_at;
-}
-
-function getTimedWarmupTargets(accounts: AccountWithUsage[]): AccountWithUsage[] {
-  return accounts.filter(
-    (account) =>
-      account.usage &&
-      !account.usageLoading &&
-      !account.usage.error &&
-      !isLimitFull(account.usage.secondary_used_percent)
-  );
 }
 
 function matchesAccountSearch(
@@ -222,7 +153,7 @@ function App() {
     return readAutoWarmupAllEnabled();
   });
   const [autoWarmupAccountIds, setAutoWarmupAccountIds] = useState<Set<string>>(
-    () => new Set(readStoredStringArray(AUTO_WARMUP_ACCOUNTS_STORAGE_KEY))
+    () => new Set(readStoredAutoWarmupAccountIds())
   );
   const [autoWarmupLedger, setAutoWarmupLedger] =
     useState<AutoWarmupLedger>(() => readStoredAutoWarmupLedger());
@@ -473,46 +404,22 @@ function App() {
   }, [loadMaskedAccountIds]);
 
   useEffect(() => {
-    if (!isActionsMenuOpen) return;
+    if (!isActionsMenuOpen && !isNavMenuOpen && !isTimedWarmupOpen) return;
 
     const handleClickOutside = (event: MouseEvent) => {
-      if (!actionsMenuRef.current) return;
-      if (!actionsMenuRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (isActionsMenuOpen && !actionsMenuRef.current?.contains(target)) {
         setIsActionsMenuOpen(false);
       }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isActionsMenuOpen]);
-
-  useEffect(() => {
-    if (!isNavMenuOpen) return;
-
-    const handleClickOutside = (event: MouseEvent) => {
-      if (!navMenuRef.current) return;
-      if (!navMenuRef.current.contains(event.target as Node)) {
+      if ((isNavMenuOpen || isTimedWarmupOpen) && !navMenuRef.current?.contains(target)) {
         setIsNavMenuOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isNavMenuOpen]);
-
-  useEffect(() => {
-    if (!isTimedWarmupOpen) return;
-
-    const handleClickOutside = (event: MouseEvent) => {
-      if (!navMenuRef.current) return;
-      if (!navMenuRef.current.contains(event.target as Node)) {
         setIsTimedWarmupOpen(false);
       }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isTimedWarmupOpen]);
+  }, [isActionsMenuOpen, isNavMenuOpen, isTimedWarmupOpen]);
 
   useEffect(() => {
     applyTheme(themeMode);
@@ -654,7 +561,6 @@ function App() {
     processCount: processInfo?.count ?? 0,
     checkProcesses,
     showToast: showWarmupToast,
-    formatError: formatWarmupError,
   });
   const isForceClosingCodex = isKillingCodex || isCompletingForceClose;
   const desktopReopen = useDesktopReopen(forceCloseConfirmOpen);
@@ -980,14 +886,6 @@ function App() {
     []
   );
 
-  const formatWindowDuration = (minutes: number | null | undefined): string => {
-    if (!minutes || minutes <= 0) return "";
-    if (minutes < 24 * 60) {
-      return `${Math.ceil(minutes / 60)}h`;
-    }
-    return `${Math.ceil(minutes / (24 * 60))}d`;
-  };
-
   const getAutoWarmupLabel = useCallback(
     (
       usage: UsageInfo | undefined,
@@ -1236,8 +1134,7 @@ function App() {
       showWarmupToast(`Slim text exported (${accounts.length} accounts).`);
     } catch (err) {
       console.error("Failed to export slim text:", err);
-      const message = err instanceof Error ? err.message : String(err);
-      setConfigModalError(message);
+      setConfigModalError(formatWarmupError(err));
       showWarmupToast("Slim export failed", true);
     } finally {
       setIsExportingSlim(false);
@@ -1269,8 +1166,7 @@ function App() {
       );
     } catch (err) {
       console.error("Failed to import slim text:", err);
-      const message = err instanceof Error ? err.message : String(err);
-      setConfigModalError(message);
+      setConfigModalError(formatWarmupError(err));
       showWarmupToast("Slim import failed", true);
     } finally {
       setIsImportingSlim(false);
@@ -1348,77 +1244,38 @@ function App() {
       return Number.isNaN(timestamp) ? null : timestamp;
     };
 
-    const compareOptionalNumber = (
-      aValue: number | null,
-      bValue: number | null,
-      direction: "asc" | "desc"
-    ) => {
-      if (aValue === null && bValue === null) return 0;
-      if (aValue === null) return 1;
-      if (bValue === null) return -1;
-      return direction === "asc" ? aValue - bValue : bValue - aValue;
-    };
-
-    const getRemainingPercent = (usedPercent: number | null | undefined) => {
-      if (usedPercent === null || usedPercent === undefined) {
-        return Number.NEGATIVE_INFINITY;
-      }
-      return Math.max(0, 100 - usedPercent);
-    };
+    const getRemainingPercent = (usedPercent: number | null | undefined) =>
+      usedPercent == null ? Number.NEGATIVE_INFINITY : Math.max(0, 100 - usedPercent);
 
     return [...otherAccounts].sort((a, b) => {
+      const deadlineDiff =
+        getResetDeadline(getPreferredResetsAt(a.usage)) -
+        getResetDeadline(getPreferredResetsAt(b.usage));
+      const remainingDiff =
+        getRemainingPercent(getPreferredUsedPercent(b.usage)) -
+        getRemainingPercent(getPreferredUsedPercent(a.usage));
+
       if (
         otherAccountsSort === "subscription_asc" ||
         otherAccountsSort === "subscription_desc"
       ) {
-        const subscriptionDiff = compareOptionalNumber(
-          getSubscriptionDeadline(a.subscription_expires_at),
-          getSubscriptionDeadline(b.subscription_expires_at),
-          otherAccountsSort === "subscription_asc" ? "asc" : "desc"
-        );
-        if (subscriptionDiff !== 0) return subscriptionDiff;
-
-        const deadlineDiff =
-          getResetDeadline(getPreferredResetsAt(a.usage)) -
-          getResetDeadline(getPreferredResetsAt(b.usage));
-        if (deadlineDiff !== 0) return deadlineDiff;
-
-        const remainingDiff =
-          getRemainingPercent(getPreferredUsedPercent(b.usage)) -
-          getRemainingPercent(getPreferredUsedPercent(a.usage));
-        if (remainingDiff !== 0) return remainingDiff;
-
-        return a.name.localeCompare(b.name);
+        const aSub = getSubscriptionDeadline(a.subscription_expires_at);
+        const bSub = getSubscriptionDeadline(b.subscription_expires_at);
+        if (aSub !== bSub) {
+          if (aSub === null) return 1;
+          if (bSub === null) return -1;
+          return otherAccountsSort === "subscription_asc" ? aSub - bSub : bSub - aSub;
+        }
+        return deadlineDiff || remainingDiff || a.name.localeCompare(b.name);
       }
 
       if (otherAccountsSort === "deadline_asc" || otherAccountsSort === "deadline_desc") {
-        const deadlineDiff =
-          getResetDeadline(getPreferredResetsAt(a.usage)) -
-          getResetDeadline(getPreferredResetsAt(b.usage));
-        if (deadlineDiff !== 0) {
-          return otherAccountsSort === "deadline_asc" ? deadlineDiff : -deadlineDiff;
-        }
-        const remainingDiff =
-          getRemainingPercent(getPreferredUsedPercent(b.usage)) -
-          getRemainingPercent(getPreferredUsedPercent(a.usage));
-        if (remainingDiff !== 0) return remainingDiff;
-        return a.name.localeCompare(b.name);
+        const primary = otherAccountsSort === "deadline_asc" ? deadlineDiff : -deadlineDiff;
+        return primary || remainingDiff || a.name.localeCompare(b.name);
       }
 
-      const remainingDiff =
-        getRemainingPercent(getPreferredUsedPercent(b.usage)) -
-        getRemainingPercent(getPreferredUsedPercent(a.usage));
-      if (otherAccountsSort === "remaining_desc" && remainingDiff !== 0) {
-        return remainingDiff;
-      }
-      if (otherAccountsSort === "remaining_asc" && remainingDiff !== 0) {
-        return -remainingDiff;
-      }
-      const deadlineDiff =
-        getResetDeadline(getPreferredResetsAt(a.usage)) -
-        getResetDeadline(getPreferredResetsAt(b.usage));
-      if (deadlineDiff !== 0) return deadlineDiff;
-      return a.name.localeCompare(b.name);
+      const primary = otherAccountsSort === "remaining_desc" ? remainingDiff : -remainingDiff;
+      return primary || deadlineDiff || a.name.localeCompare(b.name);
     });
   }, [otherAccounts, otherAccountsSort]);
 

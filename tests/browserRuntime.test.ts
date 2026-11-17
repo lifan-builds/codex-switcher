@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getTauriWindow } from "../src/lib/tauriWindow.ts";
+import { getTauriWindow } from "../src/lib/platform.ts";
 
 test("browser runtime does not resolve a Tauri window", () => {
   assert.equal(getTauriWindow(), null);

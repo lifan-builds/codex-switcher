@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DesktopReopenPreference } from "../lib/desktopReopen";
-import type { CodexClosePreference } from "../lib/codexClosePreference";
+import type { CodexClosePreference, DesktopReopenPreference } from "../lib/desktopReopen";
 import { invokeBackend, isTauriRuntime } from "../lib/platform";
 import type { DockDisplayMode } from "../types";
 

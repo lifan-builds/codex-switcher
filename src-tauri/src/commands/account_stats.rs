@@ -7,8 +7,9 @@ use reqwest::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::api::extract_chatgpt_auth;
 use crate::auth::{ensure_chatgpt_tokens_fresh, load_accounts, refresh_chatgpt_tokens};
-use crate::types::{AuthData, AuthMode, StoredAccount};
+use crate::types::{AuthMode, StoredAccount};
 
 const CHATGPT_PROFILE_USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/profiles/me";
 const CHATGPT_RESET_CREDITS_URL: &str =
@@ -436,17 +437,6 @@ fn build_reset_credits_headers(
         HeaderValue::from_static("Codex Desktop"),
     );
     Ok(headers)
-}
-
-fn extract_chatgpt_auth(account: &StoredAccount) -> anyhow::Result<(&str, Option<&str>)> {
-    match &account.auth_data {
-        AuthData::ChatGPT {
-            access_token,
-            account_id,
-            ..
-        } => Ok((access_token.as_str(), account_id.as_deref())),
-        AuthData::ApiKey { .. } => anyhow::bail!("Account is not using ChatGPT OAuth"),
-    }
 }
 
 #[cfg(test)]

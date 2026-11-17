@@ -26,17 +26,10 @@ pub(crate) const DOCK_MENU_BAR_ONLY_ID: &str = "dock-display-menu-bar-only";
 
 pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     #[cfg(target_os = "macos")]
-    {
-        apply_saved_dock_display_mode(app);
-        refresh(app)?;
-        app.on_menu_event(handle_menu_event);
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        // On non-macOS platforms, Codex Switcher uses a frameless custom UI (decorations: false).
-        // Settings are managed in the tray menu and in-app UI, so no native window menu is attached.
-        refresh(app)?;
-    }
+    apply_saved_dock_display_mode(app);
+    refresh(app)?;
+    #[cfg(target_os = "macos")]
+    app.on_menu_event(handle_menu_event);
     Ok(())
 }
 
@@ -70,7 +63,6 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         return;
     }
 
-    #[cfg(target_os = "macos")]
     if let Some(mode) = dock_display_mode_for_item(item_id.as_ref()) {
         update_dock_display_mode(app, mode);
     }
@@ -251,7 +243,6 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>, settings: &AppSettings) -> tauri::
         ],
     )?;
 
-    #[cfg(target_os = "macos")]
     let dock_settings = Submenu::with_items(
         app,
         "Dock Icon",
@@ -280,24 +271,15 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>, settings: &AppSettings) -> tauri::
         app,
         DESKTOP_REOPEN_SETTINGS_ID,
         "Reopen Codex after force close...",
-        cfg!(any(target_os = "macos", windows)),
+        true,
         None::<&str>,
     )?;
 
-    #[cfg(target_os = "macos")]
     let settings_menu = Submenu::with_items(
         app,
         "Settings",
         true,
         &[&tray_settings, &dock_settings, &desktop_reopen_settings],
-    )?;
-
-    #[cfg(not(target_os = "macos"))]
-    let settings_menu = Submenu::with_items(
-        app,
-        "Settings",
-        true,
-        &[&tray_settings, &desktop_reopen_settings],
     )?;
 
     let window_menu = Submenu::with_items(
@@ -307,7 +289,6 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>, settings: &AppSettings) -> tauri::
         &[
             &PredefinedMenuItem::minimize(app, None)?,
             &PredefinedMenuItem::maximize(app, None)?,
-            #[cfg(target_os = "macos")]
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::close_window(app, None)?,
         ],
@@ -318,7 +299,6 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>, settings: &AppSettings) -> tauri::
     Menu::with_items(
         app,
         &[
-            #[cfg(target_os = "macos")]
             &Submenu::with_items(
                 app,
                 pkg_info.name.clone(),
@@ -336,22 +316,11 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>, settings: &AppSettings) -> tauri::
                     &PredefinedMenuItem::quit(app, None)?,
                 ],
             )?,
-            #[cfg(not(any(
-                target_os = "linux",
-                target_os = "dragonfly",
-                target_os = "freebsd",
-                target_os = "netbsd",
-                target_os = "openbsd"
-            )))]
             &Submenu::with_items(
                 app,
                 "File",
                 true,
-                &[
-                    &PredefinedMenuItem::close_window(app, None)?,
-                    #[cfg(not(target_os = "macos"))]
-                    &PredefinedMenuItem::quit(app, None)?,
-                ],
+                &[&PredefinedMenuItem::close_window(app, None)?],
             )?,
             &Submenu::with_items(
                 app,
@@ -367,15 +336,12 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>, settings: &AppSettings) -> tauri::
                     &PredefinedMenuItem::select_all(app, None)?,
                 ],
             )?,
-            #[cfg(target_os = "macos")]
             &Submenu::with_items(
                 app,
                 "View",
                 true,
                 &[&PredefinedMenuItem::fullscreen(app, None)?],
             )?,
-            #[cfg(not(target_os = "macos"))]
-            &settings_menu,
             &window_menu,
             &help_menu,
         ],

@@ -1,6 +1,5 @@
 import React from "react";
-import { isTauriRuntime } from "../lib/platform";
-import { getTauriWindow } from "../lib/tauriWindow";
+import { getTauriWindow, isMacOs, isTauriRuntime } from "../lib/platform";
 
 type ResizeDirection =
   | "East"
@@ -15,10 +14,6 @@ type ResizeDirection =
 interface WindowResizeBordersProps {
   isMaximized?: boolean;
 }
-
-const isMacOs =
-  typeof navigator !== "undefined" &&
-  /(Mac|iPhone|iPod|iPad)/i.test(navigator.userAgent);
 
 export const WindowResizeBorders: React.FC<WindowResizeBordersProps> = ({
   isMaximized = false,

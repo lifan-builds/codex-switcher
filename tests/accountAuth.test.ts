@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { needsRelogin } from "../src/lib/accountAuth.ts";
+import { needsRelogin } from "../src/hooks/useAccounts.ts";
 
 test("re-login is offered for authentication failures, not quota or network errors", () => {
   for (const message of [

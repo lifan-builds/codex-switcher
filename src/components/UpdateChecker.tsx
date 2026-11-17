@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Update } from "@tauri-apps/plugin-updater";
-import { isTauriRuntime } from "../lib/platform";
+import { formatError, isTauriRuntime } from "../lib/platform";
 import { installUpdate, type UpdateInstallationStatus } from "../lib/updateInstallation";
 
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -56,18 +56,15 @@ export function UpdateChecker() {
     const { update } = status;
 
     try {
-      if (!isTauriRuntime()) return;
       await installUpdate(update, setStatus);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       console.error("Update install failed:", err);
-      setStatus({ kind: "error", message });
+      setStatus({ kind: "error", message: formatError(err) });
     }
   };
 
   const handleRelaunch = async () => {
     try {
-      if (!isTauriRuntime()) return;
       const { relaunch } = await import("@tauri-apps/plugin-process");
       await relaunch();
     } catch (err) {

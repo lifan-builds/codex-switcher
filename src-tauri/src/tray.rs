@@ -13,11 +13,10 @@ use tauri::{
 };
 
 use crate::{
-    api::usage::get_account_usage,
+    api::get_account_usage,
     auth::{get_account, get_accounts_file, load_accounts, load_app_settings},
     commands::{
-        is_codex_running_switch_block, restore_main_window, switch_account_by_id,
-        window::TRAY_WINDOW,
+        is_codex_running_switch_block, restore_main_window, switch_account, window::TRAY_WINDOW,
     },
     types::{AccountsStore, TrayDisplayMode, UsageInfo},
 };
@@ -79,7 +78,7 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(false);
 
     builder.build(app)?;
-    refresh_menu(app);
+    refresh(app);
 
     watch_accounts_file(app.clone());
     #[cfg(target_os = "windows")]
@@ -87,10 +86,6 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
     poll_active_account_usage(app.clone());
     poll_account_metadata(app.clone());
     Ok(())
-}
-
-pub fn refresh<R: Runtime>(app: &AppHandle<R>) {
-    refresh_menu(app);
 }
 
 #[cfg(target_os = "windows")]
@@ -222,7 +217,7 @@ pub fn ingest_usage<R: Runtime>(app: &AppHandle<R>, usages: Vec<UsageInfo>) {
             cache.insert(usage.account_id.clone(), usage);
         }
     }
-    refresh_menu(app);
+    refresh(app);
 }
 
 // ============================================================================
@@ -376,7 +371,7 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     }
 
     match item_id {
-        OPEN_ITEM_ID => show_main_window(app),
+        OPEN_ITEM_ID => restore_main_window(app),
         QUIT_ITEM_ID => app.exit(0),
         _ => {
             let Some(account_id) = item_id.strip_prefix(ACCOUNT_ITEM_PREFIX) else {
@@ -392,11 +387,11 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
                     return;
                 }
 
-                if let Err(error) = switch_account_by_id(&account_id).await {
+                if let Err(error) = switch_account(account_id.clone()).await {
                     eprintln!("Failed to switch account from tray: {error}");
-                    refresh_menu(&app);
+                    refresh(&app);
                     if is_codex_running_switch_block(&error) {
-                        show_main_window(&app);
+                        restore_main_window(&app);
                         let _ = app.emit(
                             SWITCH_ACCOUNT_BLOCKED_EVENT,
                             SwitchAccountBlockedPayload { account_id, error },
@@ -405,14 +400,14 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
                     return;
                 }
 
-                refresh_menu(&app);
+                refresh(&app);
                 let _ = app.emit(ACCOUNTS_CHANGED_EVENT, ());
             });
         }
     }
 }
 
-fn refresh_menu<R: Runtime>(app: &AppHandle<R>) {
+pub fn refresh<R: Runtime>(app: &AppHandle<R>) {
     let app_handle = app.clone();
     if let Err(error) = app.run_on_main_thread(move || {
         refresh_menu_on_main_thread(&app_handle);
@@ -499,10 +494,6 @@ fn refresh_tray_display<R: Runtime>(
             }
         }
     }
-}
-
-fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
-    restore_main_window(app);
 }
 
 // The tray title sits after the icon, e.g. "[icon] 66%".
@@ -612,17 +603,15 @@ fn usage_suffix(account_id: &str) -> String {
     }
 
     let mut parts = Vec::new();
-    if let Some(remaining) = session_remaining_title(usage.primary_used_percent, false) {
+    if let Some(remaining) = remaining_percent_label(usage.primary_used_percent) {
         let label =
             window_duration_label(usage.primary_window_minutes).unwrap_or_else(|| "S".to_string());
         parts.push(format!("{label}:{remaining}"));
     }
-    if let Some(used) = usage.secondary_used_percent {
-        if used.is_finite() {
-            let label = window_duration_label(usage.secondary_window_minutes)
-                .unwrap_or_else(|| "W".to_string());
-            parts.push(format!("{label}:{:.0}%", (100.0 - used).clamp(0.0, 100.0)));
-        }
+    if let Some(remaining) = remaining_percent_label(usage.secondary_used_percent) {
+        let label = window_duration_label(usage.secondary_window_minutes)
+            .unwrap_or_else(|| "W".to_string());
+        parts.push(format!("{label}:{remaining}"));
     }
 
     if parts.is_empty() {
@@ -660,7 +649,7 @@ fn watch_accounts_file<R: Runtime>(app: AppHandle<R>) {
             let modified = modified_at(&accounts_path);
             if modified != last_modified {
                 last_modified = modified;
-                refresh_menu(&app); // keep the native menu current
+                refresh(&app); // keep the native menu current
                 let _ = app.emit(ACCOUNTS_CHANGED_EVENT, ()); // refresh the React UIs
             }
         }

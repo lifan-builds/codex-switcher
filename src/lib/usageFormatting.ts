@@ -1,4 +1,81 @@
-import type { AccountDailyUsage } from "../types";
+import type { AccountDailyUsage, AccountUsageStats, UsageInfo } from "../types";
+
+export function formatPlan(plan: string | null | undefined): string | null {
+  const trimmed = plan?.trim();
+  if (!trimmed) return null;
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
+export function remainingTone(remaining: number): { text: string; bar: string; dot: string } {
+  if (remaining <= 10) {
+    return { text: "text-red-500 dark:text-red-400", bar: "bg-red-500", dot: "bg-red-500" };
+  }
+  if (remaining <= 30) {
+    return { text: "text-amber-500 dark:text-amber-400", bar: "bg-amber-500", dot: "bg-amber-500" };
+  }
+  return {
+    text: "text-green-600 dark:text-green-400",
+    bar: "bg-emerald-500",
+    dot: "bg-emerald-500",
+  };
+}
+
+export function formatWindowDuration(minutes: number | null | undefined): string {
+  if (!minutes || minutes <= 0) return "";
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 24 * 60) return `${Math.ceil(minutes / 60)}h`;
+  return `${Math.ceil(minutes / (24 * 60))}d`;
+}
+
+export function buildUsageError(
+  accountId: string,
+  error: string,
+  planType: string | null = null,
+): UsageInfo {
+  return {
+    account_id: accountId,
+    plan_type: planType,
+    primary_used_percent: null,
+    primary_window_minutes: null,
+    primary_resets_at: null,
+    secondary_used_percent: null,
+    secondary_window_minutes: null,
+    secondary_resets_at: null,
+    has_credits: null,
+    unlimited_credits: null,
+    credits_balance: null,
+    error,
+  };
+}
+
+export function emptyUsageStats(accountId: string, error: string): AccountUsageStats {
+  return {
+    account_id: accountId,
+    available: false,
+    source: "Codex usage stats via ChatGPT backend",
+    generated_at: null,
+    stats_as_of: null,
+    summary: {
+      lifetime_tokens: null,
+      peak_daily_tokens: null,
+      longest_task_seconds: null,
+      current_streak_days: null,
+      longest_streak_days: null,
+    },
+    activity: {
+      fast_mode_percent: null,
+      reasoning_effort: null,
+      reasoning_effort_percent: null,
+      skills_explored: null,
+      total_skills_used: null,
+      total_threads: null,
+    },
+    daily: [],
+    top_invocations: [],
+    reset_credits: null,
+    error,
+  };
+}
 
 export function formatTokens(tokens: number | null | undefined): string {
   if (tokens === null || tokens === undefined || !Number.isFinite(tokens)) return "--";

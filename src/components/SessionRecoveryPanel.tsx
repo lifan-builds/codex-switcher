@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { invokeBackend } from "../lib/platform";
-import type { RecoveryState } from "../lib/sessionRecovery";
+import type { RecoveryState } from "../lib/desktopReopen";
 
 export function SessionRecoveryPanel({ state, onDismiss }: {
   state: RecoveryState;

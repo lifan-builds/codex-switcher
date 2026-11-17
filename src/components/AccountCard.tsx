@@ -3,7 +3,8 @@ import type { AccountResetCredits, AccountUsageStats as AccountUsageStatsInfo, A
 import { invokeBackend } from "../lib/platform";
 import { AccountUsageStats } from "./AccountUsageStats";
 import { ResetCreditsMenu } from "./ResetCreditsMenu";
-import { needsRelogin } from "../lib/accountAuth";
+import { needsRelogin } from "../hooks/useAccounts";
+import { formatPlan } from "../lib/usageFormatting";
 import { UsageBar } from "./UsageBar";
 
 const RESET_CREDITS_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -198,11 +199,9 @@ export function AccountCard({
     }
   };
 
-  const planDisplay = account.plan_type
-    ? account.plan_type.charAt(0).toUpperCase() + account.plan_type.slice(1)
-    : account.auth_mode === "api_key"
-      ? "API Key"
-      : "Unknown";
+  const planDisplay =
+    formatPlan(account.plan_type) ??
+    (account.auth_mode === "api_key" ? "API Key" : "Unknown");
 
   const planColors: Record<string, string> = {
     pro: "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-700",

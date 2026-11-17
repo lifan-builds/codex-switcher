@@ -1,10 +1,11 @@
 //! Account storage module - manages reading and writing accounts.json
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::types::{
     parse_chatgpt_id_token_claims, AccountsStore, AppSettings, AuthData, AuthDotJson, StoredAccount,
@@ -87,86 +88,54 @@ pub fn get_settings_file() -> Result<PathBuf> {
     Ok(get_config_dir()?.join("settings.json"))
 }
 
-/// Load the accounts store from disk
-pub fn load_accounts() -> Result<AccountsStore> {
-    let path = get_accounts_file()?;
-
+fn read_json_or_default<T: DeserializeOwned + Default>(path: &Path, label: &str) -> Result<T> {
     if !path.exists() {
-        return Ok(AccountsStore::default());
+        return Ok(T::default());
     }
 
-    let content = fs::read_to_string(&path)
-        .with_context(|| format!("Failed to read accounts file: {}", path.display()))?;
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("Failed to read {label} file: {}", path.display()))?;
 
-    let store: AccountsStore = serde_json::from_str(&content)
-        .with_context(|| format!("Failed to parse accounts file: {}", path.display()))?;
-
-    Ok(store)
+    serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse {label} file: {}", path.display()))
 }
 
-pub fn load_app_settings() -> Result<AppSettings> {
-    let path = get_settings_file()?;
-
-    if !path.exists() {
-        return Ok(AppSettings::default());
-    }
-
-    let content = fs::read_to_string(&path)
-        .with_context(|| format!("Failed to read settings file: {}", path.display()))?;
-
-    let settings: AppSettings = serde_json::from_str(&content)
-        .with_context(|| format!("Failed to parse settings file: {}", path.display()))?;
-
-    Ok(settings)
-}
-
-pub fn save_app_settings(settings: &AppSettings) -> Result<()> {
-    let path = get_settings_file()?;
-
+fn write_private_json<T: Serialize>(path: &Path, value: &T, label: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create config directory: {}", parent.display()))?;
     }
 
-    let content = serde_json::to_string_pretty(settings).context("Failed to serialize settings")?;
-    fs::write(&path, content)
-        .with_context(|| format!("Failed to write settings file: {}", path.display()))?;
+    let content = serde_json::to_string_pretty(value)
+        .with_context(|| format!("Failed to serialize {label}"))?;
+    fs::write(path, content)
+        .with_context(|| format!("Failed to write {label} file: {}", path.display()))?;
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let perms = fs::Permissions::from_mode(0o600);
-        fs::set_permissions(&path, perms)?;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
     }
 
     Ok(())
+}
+
+/// Load the accounts store from disk
+pub fn load_accounts() -> Result<AccountsStore> {
+    read_json_or_default(&get_accounts_file()?, "accounts")
+}
+
+pub fn load_app_settings() -> Result<AppSettings> {
+    read_json_or_default(&get_settings_file()?, "settings")
+}
+
+pub fn save_app_settings(settings: &AppSettings) -> Result<()> {
+    write_private_json(&get_settings_file()?, settings, "settings")
 }
 
 /// Save the accounts store to disk
 pub fn save_accounts(store: &AccountsStore) -> Result<()> {
-    let path = get_accounts_file()?;
-
-    // Ensure the config directory exists
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("Failed to create config directory: {}", parent.display()))?;
-    }
-
-    let content =
-        serde_json::to_string_pretty(store).context("Failed to serialize accounts store")?;
-
-    fs::write(&path, content)
-        .with_context(|| format!("Failed to write accounts file: {}", path.display()))?;
-
-    // Set restrictive permissions on Unix
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = fs::Permissions::from_mode(0o600);
-        fs::set_permissions(&path, perms)?;
-    }
-
-    Ok(())
+    write_private_json(&get_accounts_file()?, store, "accounts")
 }
 
 /// Add a new account to the store

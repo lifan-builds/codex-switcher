@@ -502,7 +502,10 @@ fn find_codex_processes() -> anyhow::Result<(Vec<u32>, usize)> {
                 let is_codex_cli = first_token == "codex" || first_token.ends_with("/codex");
                 let process_name = process_names.get(&pid).map(String::as_str);
                 #[cfg(target_os = "macos")]
-                let bundle_identifier = read_macos_app_bundle_identifier(&command, process_name);
+                let bundle_identifier = (process_name == Some("ChatGPT"))
+                    .then(|| desktop_reopen::mac_bundle_path(&command, process_name))
+                    .flatten()
+                    .and_then(|bundle| desktop_reopen::read_macos_bundle_id(&bundle));
                 #[cfg(not(target_os = "macos"))]
                 let bundle_identifier: Option<String> = None;
                 let is_codex_desktop = is_macos_codex_desktop_process(
@@ -578,57 +581,14 @@ fn is_macos_codex_desktop_process(
     #[cfg(not(target_os = "macos"))]
     let _ = bundle_identifier;
 
-    const LEGACY_EXECUTABLE_SUFFIX: &str = "/Codex.app/Contents/MacOS/Codex";
-    #[cfg(target_os = "macos")]
-    const CURRENT_EXECUTABLE_SUFFIX: &str = "/ChatGPT.app/Contents/MacOS/ChatGPT";
-    #[cfg(target_os = "macos")]
-    const CODEX_BUNDLE_IDENTIFIER: &str = "com.openai.codex";
-
-    let executable_suffix = match process_name {
-        Some("Codex") => LEGACY_EXECUTABLE_SUFFIX,
+    match process_name {
+        Some("Codex") => desktop_reopen::mac_bundle_path(command, process_name).is_some(),
         #[cfg(target_os = "macos")]
-        Some("ChatGPT") if bundle_identifier == Some(CODEX_BUNDLE_IDENTIFIER) => {
-            CURRENT_EXECUTABLE_SUFFIX
+        Some("ChatGPT") if bundle_identifier == Some("com.openai.codex") => {
+            desktop_reopen::mac_bundle_path(command, process_name).is_some()
         }
-        _ => return false,
-    };
-
-    command.find(executable_suffix).is_some_and(|index| {
-        command[index + executable_suffix.len()..]
-            .chars()
-            .next()
-            .is_none_or(char::is_whitespace)
-    })
-}
-
-#[cfg(target_os = "macos")]
-fn read_macos_app_bundle_identifier(command: &str, process_name: Option<&str>) -> Option<String> {
-    const APP_BUNDLE_SUFFIX: &str = "/ChatGPT.app";
-    const EXECUTABLE_SUFFIX: &str = "/ChatGPT.app/Contents/MacOS/ChatGPT";
-
-    if process_name != Some("ChatGPT") {
-        return None;
+        _ => false,
     }
-
-    let executable_index = command.find(EXECUTABLE_SUFFIX)?;
-    let executable_end = executable_index + EXECUTABLE_SUFFIX.len();
-    if command[executable_end..]
-        .chars()
-        .next()
-        .is_some_and(|character| !character.is_whitespace())
-    {
-        return None;
-    }
-
-    let bundle_end = executable_index + APP_BUNDLE_SUFFIX.len();
-    let info_plist = std::path::Path::new(&command[..bundle_end]).join("Contents/Info.plist");
-    let value = plist::Value::from_file(info_plist).ok()?;
-
-    value
-        .as_dictionary()?
-        .get("CFBundleIdentifier")?
-        .as_string()
-        .map(str::to_owned)
 }
 
 #[cfg(windows)]

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   describeFileSource,
+  formatError,
   isTauriRuntime,
   openExternalUrl,
   pickAuthJsonFile,
@@ -85,7 +86,7 @@ export function AddAccountModal({
       onClose();
     } catch (err) {
       if (currentRequest !== requestId.current) return;
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatError(err));
       setLoading(false);
       setOauthPending(false);
     }
@@ -113,7 +114,7 @@ export function AddAccountModal({
       resetForm();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatError(err));
       setLoading(false);
     }
   };

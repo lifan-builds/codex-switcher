@@ -1,17 +1,14 @@
 import type { UsageInfo } from "../types";
-import { formatExactResetTime, formatResetTime } from "../lib/usageFormatting";
+import {
+  formatExactResetTime,
+  formatResetTime,
+  formatWindowDuration,
+  remainingTone,
+} from "../lib/usageFormatting";
 
 interface UsageBarProps {
   usage?: UsageInfo;
   loading?: boolean;
-}
-
-function formatWindowDuration(minutes: number | null | undefined): string {
-  if (!minutes) return "";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.floor(hours / 24)}d`;
 }
 
 function RateLimitBar({
@@ -25,16 +22,8 @@ function RateLimitBar({
   windowMinutes?: number | null;
   resetsAt?: number | null;
 }) {
-  // Calculate remaining percentage
   const remainingPercent = Math.max(0, 100 - usedPercent);
-  
-  // Color based on remaining (green = plenty left, red = almost none left)
-  const colorClass =
-    remainingPercent <= 10
-      ? "bg-red-500"
-      : remainingPercent <= 30
-        ? "bg-amber-500"
-        : "bg-emerald-500";
+  const colorClass = remainingTone(remainingPercent).bar;
 
   const windowLabel = formatWindowDuration(windowMinutes);
   const resetLabel = formatResetTime(resetsAt);

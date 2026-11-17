@@ -1,4 +1,4 @@
-//! Usage API client for fetching rate limits and credits
+//! Usage API client for fetching rate limits, account metadata, and warm-up requests
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -7,7 +7,7 @@ use reqwest::{
     StatusCode,
 };
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::collections::HashMap;
 
 use crate::auth::{ensure_chatgpt_tokens_fresh, refresh_chatgpt_tokens};
@@ -23,7 +23,6 @@ const OPENAI_API: &str = "https://api.openai.com/v1";
 const CHATGPT_ORIGIN: &str = "https://chatgpt.com";
 
 /// A browser-like User-Agent to avoid Cloudflare bot detection.
-/// Matches a recent Chrome on Windows, the same platform Codex CLI runs from.
 const BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
      AppleWebKit/537.36 (KHTML, like Gecko) \
      Chrome/136.0.0.0 Safari/537.36";
@@ -142,32 +141,19 @@ async fn get_usage_with_chatgpt_auth(account: &StoredAccount) -> Result<UsageInf
     let response = send_chatgpt_usage_request(access_token, chatgpt_account_id).await?;
 
     // 401 means the token is genuinely expired — refresh and retry once.
-    // 403 is a Cloudflare challenge or permissions error; refreshing the token
-    // would burn the refresh token unnecessarily (refresh_token_reused error).
+    // 403 is a Cloudflare challenge or permissions error; refreshing on 403
+    // would burn a single-use refresh token unnecessarily.
     if response.status() == StatusCode::UNAUTHORIZED {
-        println!(
-            "[Usage] Unauthorized for account {}, refreshing token and retrying once",
-            fresh_account.name
-        );
         let refreshed_account = refresh_chatgpt_tokens(&fresh_account).await?;
         let (retry_token, retry_account_id) = extract_chatgpt_auth(&refreshed_account)?;
         let retry_response = send_chatgpt_usage_request(retry_token, retry_account_id).await?;
-        return parse_usage_response(
-            &refreshed_account.id,
-            &refreshed_account.name,
-            retry_response,
-        )
-        .await;
+        return parse_usage_response(&refreshed_account.id, retry_response).await;
     }
 
-    parse_usage_response(&fresh_account.id, &fresh_account.name, response).await
+    parse_usage_response(&fresh_account.id, response).await
 }
 
-async fn parse_usage_response(
-    account_id: &str,
-    account_name: &str,
-    response: reqwest::Response,
-) -> Result<UsageInfo> {
+async fn parse_usage_response(account_id: &str, response: reqwest::Response) -> Result<UsageInfo> {
     let status = response.status();
 
     if !status.is_success() {
@@ -185,10 +171,7 @@ async fn parse_usage_response(
     let payload: RateLimitStatusPayload =
         serde_json::from_str(&body_text).context("Failed to parse usage response")?;
 
-    let usage = convert_payload_to_usage_info(account_id, payload);
-    println!("[Usage] Refreshed account: {account_name}");
-
-    Ok(usage)
+    Ok(convert_payload_to_usage_info(account_id, payload))
 }
 
 async fn warmup_with_chatgpt_auth(account: &StoredAccount) -> Result<()> {
@@ -197,14 +180,7 @@ async fn warmup_with_chatgpt_auth(account: &StoredAccount) -> Result<()> {
 
     let mut response = send_chatgpt_warmup_request(access_token, chatgpt_account_id, true).await?;
 
-    // Only refresh tokens on 401 (genuinely expired). A 403 is a Cloudflare
-    // challenge and does not indicate stale tokens — refreshing on 403 burns
-    // the refresh token and causes a refresh_token_reused error on the next call.
     if response.status() == StatusCode::UNAUTHORIZED {
-        println!(
-            "[Warmup] Unauthorized for account {}, refreshing token and retrying once",
-            fresh_account.name
-        );
         let refreshed_account = refresh_chatgpt_tokens(&fresh_account).await?;
         let (retry_token, retry_account_id) = extract_chatgpt_auth(&refreshed_account)?;
         response = send_chatgpt_warmup_request(retry_token, retry_account_id, true).await?;
@@ -212,14 +188,10 @@ async fn warmup_with_chatgpt_auth(account: &StoredAccount) -> Result<()> {
 
     if !response.status().is_success() {
         let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        println!("[Warmup] ChatGPT warm-up error response: {body}");
         anyhow::bail!("ChatGPT warm-up failed with status {status}");
     }
 
-    let body = response.text().await.unwrap_or_default();
-    log_warmup_response("ChatGPT", &body, true);
-
+    let _ = response.bytes().await;
     Ok(())
 }
 
@@ -237,14 +209,10 @@ async fn warmup_with_api_key(api_key: &str) -> Result<()> {
 
     if !response.status().is_success() {
         let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        println!("[Warmup] API key warm-up error response: {body}");
         anyhow::bail!("API key warm-up failed with status {status}");
     }
 
-    let body = response.text().await.unwrap_or_default();
-    log_warmup_response("API key", &body, false);
-
+    let _ = response.bytes().await;
     Ok(())
 }
 
@@ -290,19 +258,11 @@ fn build_chatgpt_headers(
     use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, ORIGIN, REFERER};
 
     let mut headers = HeaderMap::new();
-
-    // Use a real browser User-Agent so Cloudflare does not flag the request as
-    // a bot.  The codex-cli/1.0.0 string was the previous value and it
-    // reliably triggers the CF "Enable JavaScript and cookies" challenge.
     headers.insert(USER_AGENT, HeaderValue::from_static(BROWSER_USER_AGENT));
-
     headers.insert(
         AUTHORIZATION,
         HeaderValue::from_str(&format!("Bearer {access_token}")).context("Invalid access token")?,
     );
-
-    // Browser-like headers that Cloudflare uses to distinguish real browsers
-    // from automated HTTP clients.
     headers.insert(
         ACCEPT,
         HeaderValue::from_static("application/json, text/plain, */*"),
@@ -310,30 +270,29 @@ fn build_chatgpt_headers(
     headers.insert(ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.9"));
     headers.insert(ORIGIN, HeaderValue::from_static(CHATGPT_ORIGIN));
     headers.insert(REFERER, HeaderValue::from_static(CHATGPT_ORIGIN));
-
-    // Fetch metadata headers sent by the browser
-    if let Ok(name) = HeaderName::from_bytes(b"sec-fetch-dest") {
-        headers.insert(name, HeaderValue::from_static("empty"));
-    }
-    if let Ok(name) = HeaderName::from_bytes(b"sec-fetch-mode") {
-        headers.insert(name, HeaderValue::from_static("cors"));
-    }
-    if let Ok(name) = HeaderName::from_bytes(b"sec-fetch-site") {
-        headers.insert(name, HeaderValue::from_static("same-origin"));
-    }
+    headers.insert(
+        HeaderName::from_static("sec-fetch-dest"),
+        HeaderValue::from_static("empty"),
+    );
+    headers.insert(
+        HeaderName::from_static("sec-fetch-mode"),
+        HeaderValue::from_static("cors"),
+    );
+    headers.insert(
+        HeaderName::from_static("sec-fetch-site"),
+        HeaderValue::from_static("same-origin"),
+    );
 
     if let Some(acc_id) = chatgpt_account_id {
-        if let Ok(header_name) = HeaderName::from_bytes(b"chatgpt-account-id") {
-            if let Ok(header_value) = HeaderValue::from_str(acc_id) {
-                headers.insert(header_name, header_value);
-            }
+        if let Ok(header_value) = HeaderValue::from_str(acc_id) {
+            headers.insert(HeaderName::from_static("chatgpt-account-id"), header_value);
         }
     }
 
     Ok(headers)
 }
 
-fn extract_chatgpt_auth(account: &StoredAccount) -> Result<(&str, Option<&str>)> {
+pub(crate) fn extract_chatgpt_auth(account: &StoredAccount) -> Result<(&str, Option<&str>)> {
     match &account.auth_data {
         AuthData::ChatGPT {
             access_token,
@@ -390,90 +349,6 @@ async fn send_chatgpt_warmup_request(
         .send()
         .await
         .context("Failed to send ChatGPT warm-up request")
-}
-
-fn log_warmup_response(source: &str, body: &str, is_sse: bool) {
-    if body.trim().is_empty() {
-        println!("[Warmup] {source} warm-up response was empty");
-        return;
-    }
-
-    let preview = truncate_text(body, 300);
-    println!("[Warmup] {source} warm-up response preview: {preview}");
-
-    let extracted = if is_sse {
-        extract_text_from_sse(body)
-    } else {
-        extract_text_from_json(body)
-    };
-
-    if let Some(message) = extracted {
-        let message_preview = truncate_text(&message, 200);
-        println!("[Warmup] {source} warm-up message: {message_preview}");
-    }
-}
-
-fn truncate_text(text: &str, max_len: usize) -> String {
-    if text.len() <= max_len {
-        return text.to_string();
-    }
-    let mut out = text[..max_len].to_string();
-    out.push_str("...");
-    out
-}
-
-fn extract_text_from_sse(body: &str) -> Option<String> {
-    let mut last_text: Option<String> = None;
-    for line in body.lines() {
-        let line = line.trim();
-        if !line.starts_with("data:") {
-            continue;
-        }
-        let data = line.trim_start_matches("data:").trim();
-        if data.is_empty() || data == "[DONE]" {
-            continue;
-        }
-        if let Ok(value) = serde_json::from_str::<Value>(data) {
-            if let Some(text) = extract_last_text_from_value(&value) {
-                last_text = Some(text);
-            }
-        }
-    }
-    last_text.filter(|text| !text.trim().is_empty())
-}
-
-fn extract_text_from_json(body: &str) -> Option<String> {
-    let value = serde_json::from_str::<Value>(body).ok()?;
-    extract_last_text_from_value(&value)
-}
-
-fn extract_last_text_from_value(value: &Value) -> Option<String> {
-    let mut last: Option<String> = None;
-    collect_last_text(value, &mut last);
-    last
-}
-
-fn collect_last_text(value: &Value, last: &mut Option<String>) {
-    match value {
-        Value::Object(map) => {
-            for (key, val) in map {
-                if matches!(key.as_str(), "text" | "delta" | "output_text") {
-                    if let Value::String(text) = val {
-                        if !text.is_empty() {
-                            *last = Some(text.clone());
-                        }
-                    }
-                }
-                collect_last_text(val, last);
-            }
-        }
-        Value::Array(items) => {
-            for item in items {
-                collect_last_text(item, last);
-            }
-        }
-        _ => {}
-    }
 }
 
 /// Convert API response to UsageInfo

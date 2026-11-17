@@ -113,8 +113,8 @@ pub(super) fn capture_desktops(pids: &[u32]) -> Result<Vec<CapturedDesktop>, Str
     Ok(desktops)
 }
 
-#[cfg(any(target_os = "macos", test))]
-fn mac_bundle_path(command: &str, name: Option<&str>) -> Option<String> {
+#[cfg(any(unix, test))]
+pub(super) fn mac_bundle_path(command: &str, name: Option<&str>) -> Option<String> {
     let suffix = match name? {
         "ChatGPT" => "/ChatGPT.app/Contents/MacOS/ChatGPT",
         "Codex" => "/Codex.app/Contents/MacOS/Codex",
@@ -135,7 +135,7 @@ fn mac_bundle_path(command: &str, name: Option<&str>) -> Option<String> {
 }
 
 #[cfg(target_os = "macos")]
-fn is_codex_bundle(bundle: &str) -> bool {
+pub(super) fn read_macos_bundle_id(bundle: &str) -> Option<String> {
     plist::Value::from_file(std::path::Path::new(bundle).join("Contents/Info.plist"))
         .ok()
         .and_then(|value| {
@@ -145,7 +145,11 @@ fn is_codex_bundle(bundle: &str) -> bool {
                 .as_string()
                 .map(str::to_owned)
         })
-        .is_some_and(|id| id == "com.openai.codex")
+}
+
+#[cfg(target_os = "macos")]
+fn is_codex_bundle(bundle: &str) -> bool {
+    read_macos_bundle_id(bundle).as_deref() == Some("com.openai.codex")
 }
 
 #[cfg(any(windows, test))]

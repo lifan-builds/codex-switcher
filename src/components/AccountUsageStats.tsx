@@ -5,8 +5,8 @@ import type {
   AccountUsageStats as AccountUsageStatsInfo,
   UsageInfo,
 } from "../types";
-import { invokeBackend } from "../lib/platform";
-import { dayKey, formatTokens, sumDailyTokens } from "../lib/usageFormatting";
+import { formatError, invokeBackend } from "../lib/platform";
+import { dayKey, emptyUsageStats, formatTokens, sumDailyTokens } from "../lib/usageFormatting";
 
 interface AccountUsageStatsProps {
   accountId: string;
@@ -15,35 +15,6 @@ interface AccountUsageStatsProps {
   usage?: UsageInfo;
   usageLoading?: boolean;
   onStatsLoaded?: (stats: AccountUsageStatsInfo | null) => void;
-}
-
-function emptyStats(accountId: string, error: string): AccountUsageStatsInfo {
-  return {
-    account_id: accountId,
-    available: false,
-    source: "Codex usage stats via ChatGPT backend",
-    generated_at: null,
-    stats_as_of: null,
-    summary: {
-      lifetime_tokens: null,
-      peak_daily_tokens: null,
-      longest_task_seconds: null,
-      current_streak_days: null,
-      longest_streak_days: null,
-    },
-    activity: {
-      fast_mode_percent: null,
-      reasoning_effort: null,
-      reasoning_effort_percent: null,
-      skills_explored: null,
-      total_skills_used: null,
-      total_threads: null,
-    },
-    daily: [],
-    top_invocations: [],
-    reset_credits: null,
-    error,
-  };
 }
 
 function formatNumber(value: number | null | undefined): string {
@@ -340,7 +311,7 @@ export function AccountUsageStats({
 
     if (!enabled) {
       if (background) return;
-      const next = emptyStats(accountId, "Usage stats are available for ChatGPT accounts only.");
+      const next = emptyUsageStats(accountId, "Usage stats are available for ChatGPT accounts only.");
       setStats(next);
       onStatsLoaded?.(next);
       setLoading(false);
@@ -362,7 +333,7 @@ export function AccountUsageStats({
       onStatsLoaded?.(next);
     } catch (err) {
       if (background || requestId !== requestSeq.current) return;
-      const next = emptyStats(accountId, err instanceof Error ? err.message : String(err));
+      const next = emptyUsageStats(accountId, formatError(err));
       setStats(next);
       onStatsLoaded?.(next);
     } finally {

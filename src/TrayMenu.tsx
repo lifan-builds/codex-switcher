@@ -13,9 +13,13 @@ import {
   writeAutoWarmupAllEnabled,
 } from "./lib/autoWarmup";
 import {
+  buildUsageError,
+  emptyUsageStats,
   formatExactResetTime,
+  formatPlan,
   formatResetTime,
   formatTokens,
+  remainingTone,
   sumDailyTokens,
 } from "./lib/usageFormatting";
 
@@ -24,32 +28,6 @@ const ACCOUNTS_CHANGED_EVENT = "accounts-changed";
 const SWITCH_ACCOUNT_BLOCKED_EVENT = "switch-account-blocked";
 // Mirrors the backend guard message in process.rs (ensure_codex_not_running).
 const CODEX_RUNNING_PREFIX = "Cannot switch accounts while";
-
-// "plus" -> "Plus". Returns null when there is no usable plan label.
-function formatPlan(plan: string | null): string | null {
-  const trimmed = plan?.trim();
-  if (!trimmed) return null;
-  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
-}
-
-// Color classes for a rate-limit window based on remaining %, matching the main app.
-function remainingTone(remaining: number): { text: string; bar: string; dot: string } {
-  if (remaining <= 10) {
-    return { text: "text-red-500 dark:text-red-400", bar: "bg-red-500", dot: "bg-red-500" };
-  }
-  if (remaining <= 30) {
-    return {
-      text: "text-amber-500 dark:text-amber-400",
-      bar: "bg-amber-500",
-      dot: "bg-amber-500",
-    };
-  }
-  return {
-    text: "text-green-600 dark:text-green-400",
-    bar: "bg-emerald-500",
-    dot: "bg-emerald-500",
-  };
-}
 
 function retainUsageForAccounts(
   usageById: Record<string, UsageInfo>,
@@ -85,20 +63,7 @@ function TrayMenu() {
         } catch (err) {
           setUsageById((prev) => ({
             ...prev,
-            [account.id]: {
-              account_id: account.id,
-              plan_type: account.plan_type,
-              primary_used_percent: null,
-              primary_window_minutes: null,
-              primary_resets_at: null,
-              secondary_used_percent: null,
-              secondary_window_minutes: null,
-              secondary_resets_at: null,
-              has_credits: null,
-              unlimited_credits: null,
-              credits_balance: null,
-              error: formatError(err),
-            },
+            [account.id]: buildUsageError(account.id, formatError(err), account.plan_type),
           }));
         }
       })
@@ -117,32 +82,7 @@ function TrayMenu() {
     } catch (err) {
       setStatsById((prev) => ({
         ...prev,
-        [active.id]: {
-          account_id: active.id,
-          available: false,
-          source: "Codex usage stats via ChatGPT backend",
-          generated_at: null,
-          stats_as_of: null,
-          summary: {
-            lifetime_tokens: null,
-            peak_daily_tokens: null,
-            longest_task_seconds: null,
-            current_streak_days: null,
-            longest_streak_days: null,
-          },
-          activity: {
-            fast_mode_percent: null,
-            reasoning_effort: null,
-            reasoning_effort_percent: null,
-            skills_explored: null,
-            total_skills_used: null,
-            total_threads: null,
-          },
-          daily: [],
-          top_invocations: [],
-          reset_credits: null,
-          error: formatError(err),
-        },
+        [active.id]: emptyUsageStats(active.id, formatError(err)),
       }));
     }
   }, []);

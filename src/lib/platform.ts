@@ -1,6 +1,13 @@
+import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
 import type { ImportAccountsSummary } from "../types";
 
 export type FileSource = string | File;
+
+export const isMacOs =
+  typeof navigator !== "undefined" &&
+  /(Mac|iPhone|iPod|iPad)/i.test(navigator.userAgent);
+
+let cachedWindow: TauriWindow | null = null;
 
 export function formatError(err: unknown): string {
   if (!err) return "Unknown error";
@@ -15,6 +22,11 @@ export function formatError(err: unknown): string {
 
 export function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+export function getTauriWindow(): TauriWindow | null {
+  if (!isTauriRuntime()) return null;
+  return (cachedWindow ??= getCurrentWindow());
 }
 
 export async function invokeBackend<T>(

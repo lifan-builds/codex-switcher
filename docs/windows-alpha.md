@@ -21,8 +21,7 @@ disabled in this build; install future fork alphas manually.
 
 Quota-stopped conversation recovery requires a Codex CLI supporting `codex queue`
 and a desktop app registered for `codex://` links. Recovery of other running chats
-interrupted by switching is currently macOS-only. Windows end-to-end account
-switching and recovery still need live validation on your machine.
+interrupted by switching is macOS-only.
 
 Windows recovery discovers the desktop-managed CLI under
 `%LOCALAPPDATA%\OpenAI\Codex\bin`, including versioned build directories. It
